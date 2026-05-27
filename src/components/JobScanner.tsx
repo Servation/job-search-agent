@@ -394,19 +394,21 @@ export default function JobScanner({
         if (inAlreadyScored) return { isDup: true, reason: "Already evaluated in this scan batch" };
 
         // 2. Check URL (normalized)
-        const normUrl = normalizeJobUrl(job.url || '');
-        const urlMatch = (item: any) => normalizeJobUrl(item.url || '') === normUrl;
-        
-        if (savedJobs.some(urlMatch)) return { isDup: true, reason: "URL already saved in Board" };
-        if (watchlist.some(urlMatch)) return { isDup: true, reason: "URL already saved in Watchlist" };
-        if (scannedJobs.some(urlMatch)) return { isDup: true, reason: "URL already in Discovered postings" };
-        if (fullyScoredJobs.some(urlMatch)) return { isDup: true, reason: "URL already evaluated in this scan batch" };
+        if (job.url && job.url.trim() !== '') {
+          const normUrl = normalizeJobUrl(job.url);
+          const urlMatch = (item: any) => item.url && normalizeJobUrl(item.url) === normUrl;
+          
+          if (savedJobs.some(urlMatch)) return { isDup: true, reason: "URL already saved in Board" };
+          if (watchlist.some(urlMatch)) return { isDup: true, reason: "URL already saved in Watchlist" };
+          if (scannedJobs.some(urlMatch)) return { isDup: true, reason: "URL already in Discovered postings" };
+          if (fullyScoredJobs.some(urlMatch)) return { isDup: true, reason: "URL already evaluated in this scan batch" };
+        }
 
         // 3. Check Job Number/ID (if extracted)
-        const jobNo = extractJobNumber(job.url || '');
+        const jobNo = job.url ? extractJobNumber(job.url) : null;
         if (jobNo) {
           const idMatch = (item: any) => {
-            const itemNo = extractJobNumber(item.url || '');
+            const itemNo = item.url ? extractJobNumber(item.url) : null;
             return itemNo && itemNo === jobNo;
           };
           if (savedJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already saved in Board` };

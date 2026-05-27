@@ -1543,10 +1543,10 @@ app.post('/api/jobs/source', async (req, res) => {
 
     for (const job of allJobs) {
       const titleKey = `${job.title.toLowerCase().trim()}|${job.company.toLowerCase().trim()}`;
-      const urlKey = normalizeJobUrl(job.url);
-      const jobIdKey = extractJobNumber(job.url);
+      const urlKey = job.url ? normalizeJobUrl(job.url) : '';
+      const jobIdKey = job.url ? extractJobNumber(job.url) : null;
 
-      if (seenTitles.has(titleKey) || seenUrls.has(urlKey) || (jobIdKey && seenJobIds.has(jobIdKey))) {
+      if (seenTitles.has(titleKey) || (urlKey && seenUrls.has(urlKey)) || (jobIdKey && seenJobIds.has(jobIdKey))) {
         continue;
       }
 
@@ -1556,11 +1556,16 @@ app.post('/api/jobs/source', async (req, res) => {
             s.company.toLowerCase().trim() === job.company.toLowerCase().trim()) {
           return true;
         }
-        const sUrl = normalizeJobUrl(s.url || '');
-        if (sUrl === urlKey) return true;
+        
+        if (urlKey && s.url) {
+          const sUrl = normalizeJobUrl(s.url);
+          if (sUrl === urlKey) return true;
+        }
 
-        const sJobId = extractJobNumber(s.url || '');
-        if (jobIdKey && sJobId && sJobId === jobIdKey) return true;
+        if (jobIdKey) {
+          const sJobId = s.url ? extractJobNumber(s.url) : null;
+          if (sJobId && sJobId === jobIdKey) return true;
+        }
 
         return false;
       });
@@ -1568,7 +1573,7 @@ app.post('/api/jobs/source', async (req, res) => {
       if (isSaved) continue;
 
       seenTitles.add(titleKey);
-      seenUrls.add(urlKey);
+      if (urlKey) seenUrls.add(urlKey);
       if (jobIdKey) seenJobIds.add(jobIdKey);
 
       const comp = job.company.toLowerCase().trim();
