@@ -335,9 +335,9 @@ export default function JobScanner({
         warnings.forEach((warn: string) => log(warn, "filterSkip"));
       }
 
-      // Log detailed sourcing stats telemetry
+      // Log detailed sourcing stats
       if (stats) {
-        log(`[Telemetry] Sourcing sites summary:`, "fetch");
+        log(`[Event Logs] Sourcing sites summary:`, "fetch");
         if (stats.greenhouse) log(`  - Greenhouse API: ${stats.greenhouse.count} jobs found (${stats.greenhouse.status})`, "fetch");
         if (stats.lever) log(`  - Lever API: ${stats.lever.count} jobs found (${stats.lever.status})`, "fetch");
         if (stats.workday) log(`  - Workday API (F500): ${stats.workday.count} jobs found (${stats.workday.status})`, "fetch");
@@ -780,12 +780,12 @@ export default function JobScanner({
         </div>
       </div>
 
-      {/* Unified Live Telemetry Scrolling Terminal */}
+      {/* Unified Live Event Logs Scrolling Terminal */}
       <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 shadow-inner" id="ai-telemetering-logs">
         <div className="text-slate-400 border-b border-white/5 pb-2 mb-3.5 font-bold flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${isAiRunning ? "bg-indigo-500 animate-ping" : "bg-emerald-500"}`} />
-            <span className="tracking-wider uppercase font-display">LLM AGENT EVENT TELEMETRY</span>
+            <span className="tracking-wider uppercase font-display">EVENT LOGS</span>
           </div>
           <div className="flex items-center gap-2 animate-fade-in font-sans">
             <button
@@ -795,14 +795,14 @@ export default function JobScanner({
                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20' 
                   : 'bg-slate-900 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-850'
               }`}
-              title="Toggle Ralph Wiggum funny quote commentary telemetry logs"
+              title="Toggle Ralph Wiggum funny quote commentary event logs"
             >
               🍌 Ralph Mode: {ralphMode ? 'ON' : 'OFF'}
             </button>
             <button
               onClick={clearAiLogs}
               className="text-[10px] font-bold px-3 py-1.5 rounded-lg border border-white/10 bg-slate-900 text-slate-400 hover:text-rose-450 hover:border-rose-500/25 hover:bg-slate-850 transition-all cursor-pointer shadow-sm"
-              title="Clear all telemetry events from log history"
+              title="Clear all event logs from history"
             >
               Clear Logs
             </button>
@@ -810,7 +810,7 @@ export default function JobScanner({
         </div>
         <div className="font-mono text-[11px] text-slate-300 space-y-1.5 max-h-44 overflow-y-auto leading-relaxed pr-2 flex flex-col-reverse">
           {aiLogs.length === 0 ? (
-            <div className="text-slate-600 italic py-2">No agent events logged yet. Try parsing or scanning to generate telemetry streams.</div>
+            <div className="text-slate-600 italic py-2">No events logged yet. Try parsing or scanning to generate log streams.</div>
           ) : (
             aiLogs.map((log, idx) => {
               const hasColor = log.includes("Error") || log.includes("failed");

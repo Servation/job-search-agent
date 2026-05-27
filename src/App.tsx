@@ -281,6 +281,9 @@ export default function App() {
       const filtered = newJobs.filter(
         (nj) => !prev.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase())
       );
+      filtered.forEach((nj) => {
+        addAiLog(`User: Saved job "${nj.title}" at ${nj.company} to tracking board.`);
+      });
       return [...filtered, ...prev];
     });
 
@@ -297,6 +300,9 @@ export default function App() {
           !prev.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase()) &&
           !savedJobs.some((sj) => sj.title.toLowerCase() === nj.title.toLowerCase() && sj.company.toLowerCase() === nj.company.toLowerCase())
       );
+      filtered.forEach((nj) => {
+        addAiLog(`User: Added job "${nj.title}" at ${nj.company} to watchlist.`);
+      });
       return [...filtered, ...prev];
     });
   };
@@ -305,11 +311,16 @@ export default function App() {
     const job = watchlist.find((j) => j.id === id);
     if (job) {
       addDismissedJobKey(job.company, job.title);
+      addAiLog(`User: Removed job "${job.title}" at ${job.company} from watchlist (added to dismissed blocklist).`);
     }
     setWatchlist((prev) => prev.filter((j) => j.id !== id));
   };
 
   const handleUpdateJobStatus = (id: string, status: 'discovered' | 'applied' | 'review' | 'interviewing' | 'offered' | 'rejected', notes?: string) => {
+    const job = savedJobs.find((j) => j.id === id);
+    if (job) {
+      addAiLog(`User: Updated job "${job.title}" at ${job.company} status to "${status}".`);
+    }
     setSavedJobs((prev) =>
       prev.map((job) => (job.id === id ? { ...job, status, notes, appliedDate: status === 'applied' && !job.appliedDate ? new Date().toISOString() : job.appliedDate } : job))
     );
@@ -319,11 +330,13 @@ export default function App() {
     const job = savedJobs.find((j) => j.id === id);
     if (job) {
       addDismissedJobKey(job.company, job.title);
+      addAiLog(`User: Removed job "${job.title}" at ${job.company} from board (added to dismissed blocklist).`);
     }
     setSavedJobs((prev) => prev.filter((j) => j.id !== id));
   };
 
   const handleParseComplete = (parsed: { name?: string; skills?: string[]; roles?: string[]; location?: string }) => {
+    addAiLog(`ResumeParser: Resume parsing complete. Target roles updated: [${(parsed.roles || []).join(', ')}]. Navigating to scanner...`);
     setActiveTab('scanner'); // Navigate to scanner automatically once parsing succeeds!
   };
 
