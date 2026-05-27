@@ -525,20 +525,30 @@ async function checkSourceHealth(
   let workdayHealthy = false;
   let workdayError = '';
   try {
-    const urlSalesforce = WORKDAY_SEARCH_TEMPLATE.replace(/{tenant}/g, 'salesforce').replace(/{site}/g, 'External_Career_Site');
-    const urlNvidia = WORKDAY_SEARCH_TEMPLATE.replace(/{tenant}/g, 'nvidia').replace(/{site}/g, 'NVIDIACareers');
+    const urlSalesforce = 'https://salesforce.wd12.myworkdayjobs.com/wday/cxs/salesforce/External_Career_Site/jobs';
+    const urlNvidia = 'https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/jobs';
     
     const [resSf, resNv] = await Promise.allSettled([
       fetch(urlSalesforce, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-        body: JSON.stringify({ searchText: 'health-ping', limit: 1 }),
+        headers: { 
+          'Content-Type': 'application/json', 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'https://salesforce.wd12.myworkdayjobs.com',
+          'Referer': 'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/'
+        },
+        body: JSON.stringify({ searchText: 'health-ping', limit: 1, offset: 0, appliedFacets: {} }),
         signal: AbortSignal.timeout(4000)
       }),
       fetch(urlNvidia, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-        body: JSON.stringify({ searchText: 'health-ping', limit: 1 }),
+        headers: { 
+          'Content-Type': 'application/json', 
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': 'https://nvidia.wd5.myworkdayjobs.com',
+          'Referer': 'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/'
+        },
+        body: JSON.stringify({ searchText: 'health-ping', limit: 1, offset: 0, appliedFacets: {} }),
         signal: AbortSignal.timeout(4000)
       })
     ]);

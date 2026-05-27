@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Briefcase, 
   Sparkles, 
@@ -131,6 +131,14 @@ export default function JobScanner({
   useEffect(() => {
     localStorage.setItem('job_agent_scanned_jobs', JSON.stringify(scannedJobs));
   }, [scannedJobs]);
+
+  const logsContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (logsContainerRef.current) {
+      logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+    }
+  }, [aiLogs]);
 
   // Dynamic duplicate & dismissed cleanup: remove jobs from scanned memory if they are saved/applied, dismissed, or exceed company match limits
   useEffect(() => {
@@ -808,11 +816,14 @@ export default function JobScanner({
             </button>
           </div>
         </div>
-        <div className="font-mono text-[11px] text-slate-300 space-y-1.5 max-h-44 overflow-y-auto leading-relaxed pr-2 flex flex-col-reverse">
+        <div 
+          ref={logsContainerRef}
+          className="font-mono text-[11px] text-slate-300 space-y-1.5 max-h-44 overflow-y-auto leading-relaxed pr-2 flex flex-col"
+        >
           {aiLogs.length === 0 ? (
             <div className="text-slate-600 italic py-2">No events logged yet. Try parsing or scanning to generate log streams.</div>
           ) : (
-            aiLogs.map((log, idx) => {
+            [...aiLogs].reverse().map((log, idx) => {
               const hasColor = log.includes("Error") || log.includes("failed");
               const hasSuccess = log.includes("successful") || log.includes("analyzed") || log.includes("Success") || log.includes("completed");
               return (
