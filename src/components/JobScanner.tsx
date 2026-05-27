@@ -324,6 +324,7 @@ export default function JobScanner({
           savedJobs: [
             ...savedJobs,
             ...watchlist,
+            ...scannedJobs,
             ...mappedDismissed
           ],
         }),
