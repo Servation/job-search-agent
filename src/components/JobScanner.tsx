@@ -679,26 +679,22 @@ export default function JobScanner({
             <div className={`w-2.5 h-2.5 rounded-full ${isAiRunning ? "bg-indigo-500 animate-ping" : "bg-emerald-500"}`} />
             <span className="tracking-wider uppercase font-display">LLM AGENT EVENT TELEMETRY</span>
           </div>
-          <div className="flex items-center gap-2 font-mono animate-fade-in">
+          <div className="flex items-center gap-2 animate-fade-in font-sans">
             <button
               onClick={() => setRalphMode(!ralphMode)}
-              className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors cursor-pointer flex items-center gap-1 ${
+              className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer flex items-center gap-1 shadow-sm ${
                 ralphMode 
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' 
-                  : 'bg-slate-900 text-slate-400 border-white/5 hover:text-slate-200'
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20' 
+                  : 'bg-slate-900 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-850'
               }`}
               title="Toggle Ralph Wiggum funny quote commentary telemetry logs"
             >
               🍌 Ralph Mode: {ralphMode ? 'ON' : 'OFF'}
             </button>
-            <span className="text-slate-600">•</span>
-            <span className="text-[10px] bg-slate-905 text-indigo-400 px-1.5 rounded uppercase font-semibold">
-              Active: {(llmConfig.endpoint || '').includes('localhost') || (llmConfig.endpoint || '').includes('127.0.0.1') ? 'Local AI Engine' : 'Custom API'}
-            </span>
-            <span className="text-slate-600">•</span>
             <button
               onClick={clearAiLogs}
-              className="text-[10px] hover:text-rose-400 font-bold hover:bg-white/5 px-2 py-0.5 rounded cursor-pointer transition-colors"
+              className="text-[10px] font-bold px-3 py-1.5 rounded-lg border border-white/10 bg-slate-900 text-slate-400 hover:text-rose-450 hover:border-rose-500/25 hover:bg-slate-850 transition-all cursor-pointer shadow-sm"
+              title="Clear all telemetry events from log history"
             >
               Clear Logs
             </button>

@@ -341,7 +341,7 @@ export default function App() {
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  Scanning active in last 24h
+                  Scanning Engine Active
                 </span>
               </div>
             </div>
@@ -353,7 +353,7 @@ export default function App() {
 
             <div className="text-right hidden sm:block">
               <span className="text-xs font-semibold text-slate-300 block">
-                {(llmConfig.endpoint || '').includes('localhost') || (llmConfig.endpoint || '').includes('127.0.0.1') ? 'Local AI Engine' : 'Custom LLM API'}
+                AI Engine
               </span>
               <span className="text-[10px] text-slate-500 font-medium font-mono">Model: {llmConfig.modelName}</span>
             </div>
@@ -438,7 +438,7 @@ export default function App() {
             }`}
           >
             <FileCheck className="w-4 h-4" />
-            Submission Tracker Board
+            Submission Tracker
           </button>
           <button
             onClick={() => setActiveTab('profile')}
@@ -536,15 +536,8 @@ export default function App() {
 
       {/* Humble Human footer */}
       <footer className="border-t border-white/5 bg-slate-950/30 py-8 mt-16" id="applet-footer">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-400 font-display">Job Search Agent</span>
-            <span>•</span>
-            <span>Active parsing duplicate safeguards</span>
-          </div>
-          <div>
-            <span>Privacy secure · Client-side sandboxing fallback</span>
-          </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-500">
+          <span className="font-semibold text-slate-400 font-display">Job Search Agent</span>
         </div>
       </footer>
     </div>
