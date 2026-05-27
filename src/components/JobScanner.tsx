@@ -554,7 +554,7 @@ export default function JobScanner({
         }
       }
 
-      log(`Deliberate verification loop completed. Processed ${fullyScoredJobs.length} successfully!`, "complete");
+      log(`Deliberate verification loop completed. Added ${fullyScoredJobs.length} new matching postings to the Discovered board (skipped ${duplicatesSkipped} duplicates during scan).`, "complete");
       
       const finishTime = new Date().toLocaleString();
       setLastRunTime(finishTime);
