@@ -1,6 +1,6 @@
 # 🤖 AI-Powered Job Search Agent
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built with Gemini](https://img.shields.io/badge/Built%20with-Gemini%20Flash-violet.svg)](https://ai.google.dev/)
 [![React](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61dafb.svg)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Backend-Express%20%2B%20Node-lightgrey.svg)](https://expressjs.com/)
@@ -98,7 +98,7 @@ If you plan to publish this repository to a public GitHub repository, keep the f
 2. **Workday & SmartRecruiters Web Scraping**:
    * Sourcing uses public JSON endpoints exposing open careers boards. This is normal read-only traffic, but excessive automated requests could result in IP bans or rate limits. The app includes structured timeouts and request pacing to remain a good citizen.
 3. **Licensing**:
-   * The project is licensed under the **Apache License 2.0**. Ensure that any forks or modifications respect the open-source guidelines.
+   * The project is licensed under the **MIT License**. Ensure that any forks or modifications respect the open-source guidelines.
 4. **Google Search Tool Usage**:
    * The scan endpoint uses Gemini’s search grounding tool. This operates under Google's service boundaries and requires a valid API key config. Make sure users understand that this can consume Gemini API credits.
 
@@ -106,4 +106,4 @@ If you plan to publish this repository to a public GitHub repository, keep the f
 
 ## 📄 License
 
-Distributed under the Apache License 2.0. See `LICENSE` for more information.
+Distributed under the MIT License. See `LICENSE` for more information.
