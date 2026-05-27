@@ -62,14 +62,14 @@ Create a `.env.local` file in the root directory:
 GEMINI_API_KEY="your_gemini_api_key_here"
 
 # App hosting URL (used for relative redirects and callbacks)
-APP_URL="http://localhost:5173"
+APP_URL="http://localhost:3000"
 ```
 
 ### 3. Run Development Server
 ```bash
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
+Open `http://localhost:3000` in your browser.
 
 ---
 
