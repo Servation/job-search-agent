@@ -384,6 +384,9 @@ export default function JobScanner({
         const inWatchlist = watchlist.some(w => w.title.toLowerCase().trim() === titleL && w.company.toLowerCase().trim() === companyL);
         if (inWatchlist) return { isDup: true, reason: "Already in Watchlist" };
         
+        const inDiscovered = scannedJobs.some(s => s.title.toLowerCase().trim() === titleL && s.company.toLowerCase().trim() === companyL);
+        if (inDiscovered) return { isDup: true, reason: "Already exists in Discovered postings" };
+        
         const key = `${companyL}|${titleL}`;
         if (dismissedJobKeys.includes(key)) return { isDup: true, reason: "Dismissed / Blocked" };
         
@@ -396,6 +399,7 @@ export default function JobScanner({
         
         if (savedJobs.some(urlMatch)) return { isDup: true, reason: "URL already saved in Board" };
         if (watchlist.some(urlMatch)) return { isDup: true, reason: "URL already saved in Watchlist" };
+        if (scannedJobs.some(urlMatch)) return { isDup: true, reason: "URL already in Discovered postings" };
         if (fullyScoredJobs.some(urlMatch)) return { isDup: true, reason: "URL already evaluated in this scan batch" };
 
         // 3. Check Job Number/ID (if extracted)
@@ -407,6 +411,7 @@ export default function JobScanner({
           };
           if (savedJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already saved in Board` };
           if (watchlist.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Watchlist` };
+          if (scannedJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Discovered postings` };
           if (fullyScoredJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already evaluated in this scan batch` };
         }
 

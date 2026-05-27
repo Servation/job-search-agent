@@ -22,6 +22,8 @@ import {
   Star,
   Link,
   FileText,
+  Edit2,
+  Save,
 } from 'lucide-react';
 import { Job, JobStatusType, JobTypeType } from '../types';
 
@@ -30,6 +32,7 @@ interface SubmissionTrackerProps {
   onUpdateJobStatus: (id: string, status: JobStatusType, notes?: string) => void;
   onRemoveJob: (id: string) => void;
   onAddJobs: (jobs: Job[]) => void;
+  onUpdateJobDetails: (id: string, updatedFields: Partial<Job>) => void;
 }
 
 const EMPTY_FORM = {
@@ -47,13 +50,17 @@ export default function SubmissionTracker({
   onUpdateJobStatus,
   onRemoveJob,
   onAddJobs,
+  onUpdateJobDetails,
 }: SubmissionTrackerProps) {
   const [filterSearch, setFilterSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'company' | 'title' | 'score' | 'date' | 'status'>('company');
   const [expandedDesc, setExpandedDesc] = useState<Set<string>>(new Set());
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [formError, setFormError] = useState('');
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<typeof EMPTY_FORM | null>(null);
 
   const statuses: { value: JobStatusType; label: string; color: string }[] = [
     { value: 'discovered', label: 'Discovered', color: 'bg-slate-900 text-slate-400 border-white/15' },
@@ -72,12 +79,90 @@ export default function SubmissionTracker({
     return matchesSearch && matchesStatus;
   });
 
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
+    if (sortBy === 'company') {
+      return a.company.localeCompare(b.company);
+    }
+    if (sortBy === 'title') {
+      return a.title.localeCompare(b.title);
+    }
+    if (sortBy === 'score') {
+      return b.matchScore - a.matchScore;
+    }
+    if (sortBy === 'date') {
+      const dateA = a.appliedDate ? new Date(a.appliedDate).getTime() : 0;
+      const dateB = b.appliedDate ? new Date(b.appliedDate).getTime() : 0;
+      return dateB - dateA;
+    }
+    if (sortBy === 'status') {
+      const statusOrder: Record<string, number> = {
+        offered: 0,
+        interviewing: 1,
+        review: 2,
+        applied: 3,
+        discovered: 4,
+        rejected: 5,
+      };
+      const orderA = statusOrder[a.status] ?? 99;
+      const orderB = statusOrder[b.status] ?? 99;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      return a.company.localeCompare(b.company);
+    }
+    return 0;
+  });
+
   const toggleDesc = (id: string) => {
     setExpandedDesc(prev => {
       const next = new Set(prev);
       if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
+  };
+
+  const handleStartEdit = (job: Job) => {
+    setEditingJobId(job.id);
+    setEditForm({
+      title: job.title,
+      company: job.company,
+      location: job.location || '',
+      type: job.type,
+      url: job.url || '',
+      matchScore: job.matchScore > 0 ? String(job.matchScore) : '',
+      description: job.description || '',
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingJobId(null);
+    setEditForm(null);
+  };
+
+  const handleSaveEdit = (id: string) => {
+    if (!editForm) return;
+    if (!editForm.title.trim() || !editForm.company.trim()) {
+      alert('Job title and company are required.');
+      return;
+    }
+    const scoreNum = editForm.matchScore ? Math.min(100, Math.max(0, parseInt(editForm.matchScore, 10))) : 0;
+    
+    onUpdateJobDetails(id, {
+      title: editForm.title.trim(),
+      company: editForm.company.trim(),
+      location: editForm.location.trim() || 'Not specified',
+      type: editForm.type,
+      url: editForm.url.trim(),
+      matchScore: scoreNum,
+      description: editForm.description.trim(),
+    });
+
+    setEditingJobId(null);
+    setEditForm(null);
+  };
+
+  const handleEditFormChange = (field: keyof typeof EMPTY_FORM, value: string) => {
+    setEditForm(prev => prev ? { ...prev, [field]: value } : null);
   };
 
   const handleFormChange = (field: keyof typeof EMPTY_FORM, value: string) => {
@@ -268,9 +353,7 @@ export default function SubmissionTracker({
             <Plus className="w-3.5 h-3.5" /> Add to Tracker
           </button>
         </div>
-      )}
-
-      {/* Filter and search control bar */}
+      )}      {/* Filter and search control bar */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-grow">
           <Search className="w-4 h-4 text-slate-450 absolute left-3.5 top-3" />
@@ -279,23 +362,35 @@ export default function SubmissionTracker({
             value={filterSearch}
             onChange={(e) => setFilterSearch(e.target.value)}
             placeholder="Search saved positions by title or company name..."
-            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900/30 text-white placeholder-slate-600"
+            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900/30 text-white placeholder-slate-650"
           />
         </div>
 
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900 text-slate-200 font-semibold shrink-0"
+          className="px-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900 text-slate-200 font-semibold shrink-0 cursor-pointer"
         >
           <option value="all" className="bg-slate-950">Display All Statuses</option>
           {statuses.map((s) => (
             <option key={s.value} value={s.value} className="bg-slate-950">Filter: {s.label}</option>
           ))}
         </select>
+
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          className="px-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900 text-slate-200 font-semibold shrink-0 cursor-pointer"
+        >
+          <option value="company" className="bg-slate-950">Sort: Company Name</option>
+          <option value="title" className="bg-slate-950">Sort: Job Title</option>
+          <option value="score" className="bg-slate-950">Sort: Match Score</option>
+          <option value="date" className="bg-slate-950">Sort: Date Applied</option>
+          <option value="status" className="bg-slate-950">Sort: Stage Progress</option>
+        </select>
       </div>
 
-      {filteredJobs.length === 0 ? (
+      {sortedJobs.length === 0 ? (
         <div className="py-16 text-center text-slate-400 border border-dashed border-white/10 rounded-2xl">
           <AlertCircle className="w-10 h-10 text-slate-500 mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-300">No saved submissions tracked with current parameters.</p>
@@ -303,12 +398,142 @@ export default function SubmissionTracker({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="submission-pipeline-cards">
-          {filteredJobs.map((j) => {
+          {sortedJobs.map((j) => {
             const currentStatusObj = statuses.find((s) => s.value === j.status);
             const isDescOpen = expandedDesc.has(j.id);
             const hasDesc = !!j.description?.trim();
             const hasUrl = !!j.url?.trim();
             const hasScore = j.matchScore > 0;
+            const isEditing = editingJobId === j.id && editForm !== null;
+
+            if (isEditing) {
+              return (
+                <div key={j.id} className="border border-indigo-500/30 rounded-2xl p-5 bg-indigo-950/15 hover:border-indigo-500/40 transition-all space-y-4 shadow-md">
+                  {/* Edit Header */}
+                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono flex items-center gap-1.5">
+                      <Edit2 className="w-3.5 h-3.5" /> Edit Submission Details
+                    </span>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-900 border border-white/15 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  {/* Form inputs */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Job Title
+                        </label>
+                        <input
+                          type="text"
+                          value={editForm.title}
+                          onChange={e => handleEditFormChange('title', e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Company Name
+                        </label>
+                        <input
+                          type="text"
+                          value={editForm.company}
+                          onChange={e => handleEditFormChange('company', e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Location
+                        </label>
+                        <input
+                          type="text"
+                          value={editForm.location}
+                          onChange={e => handleEditFormChange('location', e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Position Type
+                        </label>
+                        <select
+                          value={editForm.type}
+                          onChange={e => handleEditFormChange('type', e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                        >
+                          <option value="Full-Time">Full-Time</option>
+                          <option value="Contract">Contract</option>
+                          <option value="Part-Time">Part-Time</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 items-end">
+                      <div className="col-span-2">
+                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Application URL
+                        </label>
+                        <input
+                          type="url"
+                          value={editForm.url}
+                          onChange={e => handleEditFormChange('url', e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                          Score (0-100)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={editForm.matchScore}
+                          onChange={e => handleEditFormChange('matchScore', e.target.value)}
+                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
+                        Description
+                      </label>
+                      <textarea
+                        value={editForm.description}
+                        onChange={e => handleEditFormChange('description', e.target.value)}
+                        rows={3}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none font-sans"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                    <button
+                      onClick={() => handleSaveEdit(j.id)}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-md shadow-indigo-500/15"
+                    >
+                      <Save className="w-3.5 h-3.5" /> Save Changes
+                    </button>
+                    <button
+                      onClick={handleCancelEdit}
+                      className="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-950 border border-white/5 text-slate-350 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              );
+            }
 
             return (
               <div key={j.id} className="border border-white/10 rounded-2xl p-5 hover:border-indigo-500/20 bg-slate-900/30 hover:bg-slate-900/40 transition-all space-y-4 shadow-md">
@@ -327,13 +552,22 @@ export default function SubmissionTracker({
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => onRemoveJob(j.id)}
-                    className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-white/5 transition-colors shrink-0"
-                    title="Remove from history"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => handleStartEdit(j)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-white/5 transition-colors"
+                      title="Edit Job Details"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => onRemoveJob(j.id)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-white/5 transition-colors"
+                      title="Remove from history"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Meta row: date, type, match score, link */}

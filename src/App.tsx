@@ -335,6 +335,16 @@ export default function App() {
     setSavedJobs((prev) => prev.filter((j) => j.id !== id));
   };
 
+  const handleUpdateJobDetails = (id: string, updatedFields: Partial<Job>) => {
+    const job = savedJobs.find((j) => j.id === id);
+    if (job) {
+      addAiLog(`User: Updated details for job "${job.title}" at ${job.company}.`);
+    }
+    setSavedJobs((prev) =>
+      prev.map((j) => (j.id === id ? { ...j, ...updatedFields } : j))
+    );
+  };
+
   const handleParseComplete = (parsed: { name?: string; skills?: string[]; roles?: string[]; location?: string }) => {
     addAiLog(`ResumeParser: Resume parsing complete. Target roles updated: [${(parsed.roles || []).join(', ')}]. Navigating to scanner...`);
     setActiveTab('scanner'); // Navigate to scanner automatically once parsing succeeds!
@@ -542,6 +552,7 @@ export default function App() {
               onUpdateJobStatus={handleUpdateJobStatus}
               onRemoveJob={handleRemoveJob}
               onAddJobs={handleAddJobs}
+              onUpdateJobDetails={handleUpdateJobDetails}
             />
           )}
         </div>
