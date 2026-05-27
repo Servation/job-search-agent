@@ -31,6 +31,11 @@ A premium, agentic job search cockpit designed to automate candidate job matchin
 * **Built-in CORS Bypass**: Proxies all LLM calls through the Express backend, resolving mixed-content browser restrictions.
 * **Ralph Wiggum Telemetry Mode**: Includes a hilarious commentary system featuring context-aware Ralph Wiggum quotes printed in the live AI event log.
 
+### 4. Interactive Submission Tracker Dashboard
+* **Logical Sorting Options**: Sort tracked submissions in real-time by **Company Name (Default)**, Job Title, Match Score, Date Applied, and Stage Progress.
+* **Inline Submission Editing**: Edit job details in-place (Job Title, Company Name, Location, Position Type, Match Score, URL, and Description) directly from each job card with instant persistence and Event Logs telemetry.
+* **Advanced Deduplication & Blacklisting**: Automatically blacklists and filters out duplicates against Saved, Watchlist, Discovered, and Dismissed positions server-side and client-side (using URL normalisation, title checks, and unique Job IDs) to preserve LLM API limits and keep board slots fully occupied.
+
 ---
 
 ## 🛠️ Architecture
