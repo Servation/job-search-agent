@@ -1618,12 +1618,7 @@ app.post('/api/jobs/source', async (req, res) => {
       round++;
     }
 
-    // 4. Sort the final round-robin list by keyword relevance
-    roundRobinJobs.sort((a, b) => {
-      const kA = roleKeywords.filter(kw => a.title.toLowerCase().includes(kw)).length;
-      const kB = roleKeywords.filter(kw => b.title.toLowerCase().includes(kw)).length;
-      return kB - kA;
-    });
+    // 4. Keep the round-robin list order to preserve source/company diversity
 
     res.json({
       jobs: roundRobinJobs.slice(0, 40),
