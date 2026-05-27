@@ -1,0 +1,6 @@
+{
+  "name": "Job Search Agent",
+  "description": "AI-powered job search assistant that scans for position matches using web-grounded LLMs, manages duplicate detection against saved history, and provides real-time alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
