@@ -1044,7 +1044,13 @@ export default function JobScanner({
           </div>
 
           <div className="grid grid-cols-1 gap-4">
-            {scannedJobs.map((job) => {
+            {[...scannedJobs]
+              .sort((a, b) => {
+                const dateA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
+                const dateB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+                return dateA - dateB;
+              })
+              .map((job) => {
               const isExpanded = expandedJobId === job.id;
               
               return (
