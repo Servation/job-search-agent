@@ -586,21 +586,14 @@ export default function JobScanner({
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display">
             <Briefcase className="w-5 h-5 text-indigo-400" />
-            Matching Scanning Core
+            Scanner
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            Initiate real-time grounded searches looking for matching jobs posted in the past 24 hours.
+            Initiate real-time searches looking for matching jobs.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowManualAdd(!showManualAdd)}
-            className="text-xs font-semibold px-4 py-2.5 rounded-xl border border-white/10 text-slate-300 hover:bg-white/5 bg-slate-900/40 flex items-center gap-1.5 transition-colors shrink-0"
-          >
-            <Plus className="w-4 h-4" /> Log Custom Position
-          </button>
-          
           <button
             onClick={executeScan}
             disabled={isAiRunning || !profile.rawText}

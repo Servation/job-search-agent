@@ -427,7 +427,7 @@ export default function App() {
             }`}
           >
             <Briefcase className="w-4 h-4" />
-            Matching Job Scanner
+            Scanner
           </button>
           <button
             onClick={() => setActiveTab('tracker')}
