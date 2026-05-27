@@ -27,6 +27,7 @@ A premium, agentic job search cockpit designed to automate candidate job matchin
 
 ### 3. Deliberate Verification Loop & Local AI Compatibility
 * **Sequential Verification Loop**: Sequentially evaluates jobs with a controlled delay to avoid rate-limiting and local LLM server congestion.
+* **Chronological Discovered Postings**: Displays discovered matching postings on the Scanner board sorted by found date (oldest first) for consistent chronological tracking.
 * **Local AI Engine Support**: Natively connects to OpenAI-compatible endpoints like **LM Studio** and **Ollama** running locally on your machine for complete data privacy.
 * **Built-in CORS Bypass**: Proxies all LLM calls through the Express backend, resolving mixed-content browser restrictions.
 * **Ralph Wiggum Telemetry Mode**: Includes a hilarious commentary system featuring context-aware Ralph Wiggum quotes printed in the live AI event log.
