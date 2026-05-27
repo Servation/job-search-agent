@@ -134,6 +134,21 @@ export default function JobScanner({
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
+  const scannedJobsRef = useRef(scannedJobs);
+  scannedJobsRef.current = scannedJobs;
+
+  const savedJobsRef = useRef(savedJobs);
+  savedJobsRef.current = savedJobs;
+
+  const watchlistRef = useRef(watchlist);
+  watchlistRef.current = watchlist;
+
+  const dismissedJobKeysRef = useRef(dismissedJobKeys);
+  dismissedJobKeysRef.current = dismissedJobKeys;
+
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+
   useEffect(() => {
     if (logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
@@ -379,17 +394,17 @@ export default function JobScanner({
         const companyL = job.company.toLowerCase().trim();
         
         // 1. Check title + company
-        const inSaved = savedJobs.some(s => s.title.toLowerCase().trim() === titleL && s.company.toLowerCase().trim() === companyL);
+        const inSaved = savedJobsRef.current.some(s => s.title.toLowerCase().trim() === titleL && s.company.toLowerCase().trim() === companyL);
         if (inSaved) return { isDup: true, reason: "Already saved in Board" };
         
-        const inWatchlist = watchlist.some(w => w.title.toLowerCase().trim() === titleL && w.company.toLowerCase().trim() === companyL);
+        const inWatchlist = watchlistRef.current.some(w => w.title.toLowerCase().trim() === titleL && w.company.toLowerCase().trim() === companyL);
         if (inWatchlist) return { isDup: true, reason: "Already in Watchlist" };
         
-        const inDiscovered = scannedJobs.some(s => s.title.toLowerCase().trim() === titleL && s.company.toLowerCase().trim() === companyL);
+        const inDiscovered = scannedJobsRef.current.some(s => s.title.toLowerCase().trim() === titleL && s.company.toLowerCase().trim() === companyL);
         if (inDiscovered) return { isDup: true, reason: "Already exists in Discovered postings" };
         
         const key = `${companyL}|${titleL}`;
-        if (dismissedJobKeys.includes(key)) return { isDup: true, reason: "Dismissed / Blocked" };
+        if (dismissedJobKeysRef.current.includes(key)) return { isDup: true, reason: "Dismissed / Blocked" };
         
         const inAlreadyScored = fullyScoredJobs.some(j => j.title.toLowerCase().trim() === titleL && j.company.toLowerCase().trim() === companyL);
         if (inAlreadyScored) return { isDup: true, reason: "Already evaluated in this scan batch" };
@@ -399,9 +414,9 @@ export default function JobScanner({
           const normUrl = normalizeJobUrl(job.url);
           const urlMatch = (item: any) => item.url && normalizeJobUrl(item.url) === normUrl;
           
-          if (savedJobs.some(urlMatch)) return { isDup: true, reason: "URL already saved in Board" };
-          if (watchlist.some(urlMatch)) return { isDup: true, reason: "URL already saved in Watchlist" };
-          if (scannedJobs.some(urlMatch)) return { isDup: true, reason: "URL already in Discovered postings" };
+          if (savedJobsRef.current.some(urlMatch)) return { isDup: true, reason: "URL already saved in Board" };
+          if (watchlistRef.current.some(urlMatch)) return { isDup: true, reason: "URL already saved in Watchlist" };
+          if (scannedJobsRef.current.some(urlMatch)) return { isDup: true, reason: "URL already in Discovered postings" };
           if (fullyScoredJobs.some(urlMatch)) return { isDup: true, reason: "URL already evaluated in this scan batch" };
         }
 
@@ -412,9 +427,9 @@ export default function JobScanner({
             const itemNo = item.url ? extractJobNumber(item.url) : null;
             return itemNo && itemNo === jobNo;
           };
-          if (savedJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already saved in Board` };
-          if (watchlist.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Watchlist` };
-          if (scannedJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Discovered postings` };
+          if (savedJobsRef.current.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already saved in Board` };
+          if (watchlistRef.current.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Watchlist` };
+          if (scannedJobsRef.current.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Discovered postings` };
           if (fullyScoredJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already evaluated in this scan batch` };
         }
 
@@ -439,10 +454,10 @@ export default function JobScanner({
 
         // 2. Check company limit BEFORE calling LLM
         const companyKey = rawJob.company.toLowerCase().trim();
-        const currentCompanyCount = [...scannedJobs, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
-        const maxPerCompany = profile.maxMatchesPerCompany || 3;
+        const currentCompanyCount = [...scannedJobsRef.current, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
+        const maxPerCompany = profileRef.current.maxMatchesPerCompany || 3;
         
-        if (profile.limitCompanyMatches && currentCompanyCount >= maxPerCompany) {
+        if (profileRef.current.limitCompanyMatches && currentCompanyCount >= maxPerCompany) {
           log(
             `[Job ${i + 1}/${rawJobs.length}] Skipped: Limit of ${maxPerCompany} positions reached for "${rawJob.company}". Excluded before LLM query.`,
             "filterSkip"
@@ -451,8 +466,8 @@ export default function JobScanner({
         }
 
         // 3. Check board capacity BEFORE calling LLM
-        const currentTotalCount = [...scannedJobs, ...fullyScoredJobs].length;
-        const capacityLimit = profile.maxDiscoveredJobs || 30;
+        const currentTotalCount = [...scannedJobsRef.current, ...fullyScoredJobs].length;
+        const capacityLimit = profileRef.current.maxDiscoveredJobs || 30;
         
         if (currentTotalCount >= capacityLimit) {
           log(
@@ -498,10 +513,10 @@ export default function JobScanner({
             );
           } else {
             // Live safety check (just in case count changed in async gap)
-            const liveCompanyCount = [...scannedJobs, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
-            const liveTotalCount = [...scannedJobs, ...fullyScoredJobs].length;
+            const liveCompanyCount = [...scannedJobsRef.current, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
+            const liveTotalCount = [...scannedJobsRef.current, ...fullyScoredJobs].length;
             
-            if (profile.limitCompanyMatches && liveCompanyCount >= maxPerCompany) {
+            if (profileRef.current.limitCompanyMatches && liveCompanyCount >= maxPerCompany) {
               log(
                 `[Job ${i + 1}/${rawJobs.length}] Excluded: Match Score was ${scoredJob.matchScore}%, but company limit of ${maxPerCompany} reached for "${scoredJob.company}".`,
                 "filterSkip"
