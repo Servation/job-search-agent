@@ -391,19 +391,20 @@ interface WorkdayCompany {
   name: string;
   tenant: string;
   site: string;
+  host?: string;
 }
 
 const WORKDAY_DIRECTORY: WorkdayCompany[] = [
-  { name: 'Nvidia', tenant: 'nvidia', site: 'NVIDIACareers' },
-  { name: 'Salesforce', tenant: 'salesforce', site: 'External_Career_Site' },
-  { name: 'Capital One', tenant: 'capitalone', site: 'Capital_One' },
-  { name: 'Adobe', tenant: 'adobe', site: 'externalcareers' },
-  { name: 'Workday', tenant: 'workday', site: 'Workday_Careers' },
-  { name: 'Dell', tenant: 'dell', site: 'External' },
-  { name: 'Autodesk', tenant: 'autodesk', site: 'Ext' },
-  { name: 'Walmart', tenant: 'walmart', site: 'Walmart_Careers' },
-  { name: 'Target', tenant: 'target', site: 'targetcareers' },
-  { name: 'Intuit', tenant: 'intuit', site: 'External' }
+  { name: 'Nvidia', tenant: 'nvidia', site: 'NVIDIAExternalCareerSite', host: 'nvidia.wd5.myworkdayjobs.com' },
+  { name: 'Salesforce', tenant: 'salesforce', site: 'External_Career_Site', host: 'salesforce.wd12.myworkdayjobs.com' },
+  { name: 'Capital One', tenant: 'capitalone', site: 'Capital_One', host: 'capitalone.wd12.myworkdayjobs.com' },
+  { name: 'Adobe', tenant: 'adobe', site: 'externalcareers', host: 'adobe.wd10.myworkdayjobs.com' },
+  { name: 'Workday', tenant: 'workday', site: 'Workday_Careers', host: 'workday.wd1.myworkdayjobs.com' },
+  { name: 'Dell', tenant: 'dell', site: 'External', host: 'dell.wd1.myworkdayjobs.com' },
+  { name: 'Autodesk', tenant: 'autodesk', site: 'Ext', host: 'autodesk.wd1.myworkdayjobs.com' },
+  { name: 'Walmart', tenant: 'walmart', site: 'Walmart_Careers', host: 'walmart.wd1.myworkdayjobs.com' },
+  { name: 'Target', tenant: 'target', site: 'targetcareers', host: 'target.wd5.myworkdayjobs.com' },
+  { name: 'Intuit', tenant: 'intuit', site: 'External', host: 'intuit.wd5.myworkdayjobs.com' }
 ];
 
 interface SmartRecruitersCompany {
@@ -441,7 +442,7 @@ async function updateCompanyDirectoriesFromRegistry() {
   
   console.log('[Registry] Checking for company directory updates from remote registry...');
   try {
-    const response = await fetch('https://raw.githubusercontent.com/jeffreysaelee/job-search-agent-slugs/main/slugs.json', {
+    const response = await fetch('https://raw.githubusercontent.com/Servation/job-search-agent-slugs/main/slugs.json', {
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
     
@@ -995,21 +996,24 @@ async function fetchWorkdayJobs(
     companies.map(async (company): Promise<RawCommunityJob[]> => {
       const ctrl = new AbortController();
       const tid = setTimeout(() => ctrl.abort(), 10000); // 10s timeout per company
+      const host = company.host || `${company.tenant}.myworkdayjobs.com`;
       
       try {
         const queryText = targetRoles.length > 0 ? targetRoles[0] : 'Software Engineer';
-        const searchUrl = WORKDAY_SEARCH_TEMPLATE.replace(/{tenant}/g, company.tenant).replace(/{site}/g, company.site);
+        const searchUrl = `https://${host}/wday/cxs/${company.tenant}/${company.site}/jobs`;
         
         const response = await fetch(searchUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Origin': `https://${host}`,
+            'Referer': `https://${host}/en-US/${company.site}/`
           },
           body: JSON.stringify({
             searchText: queryText,
-            limit: 10,
+            limit: 20,
             offset: 0,
             appliedFacets: {}
           }),
@@ -1019,7 +1023,7 @@ async function fetchWorkdayJobs(
         clearTimeout(tid);
         
         if (!response.ok) {
-          console.warn(`[Workday] Fetch failed for ${company.name}: HTTP ${response.status}`);
+          console.warn(`[Workday] Fetch failed for ${company.name} (${host}): HTTP ${response.status}`);
           return [];
         }
         
@@ -1038,14 +1042,18 @@ async function fetchWorkdayJobs(
             const jobId = pathParts[pathParts.length - 1];
             if (!jobId) return null;
             
-            const detailUrl = WORKDAY_DETAILS_TEMPLATE.replace(/{tenant}/g, company.tenant).replace(/{site}/g, company.site).replace(/{jobId}/g, jobId);
+            const detailUrl = `https://${host}/wday/cxs/${company.tenant}/${company.site}/job/${jobId}`;
             
             const dCtrl = new AbortController();
             const dTid = setTimeout(() => dCtrl.abort(), 5000);
             
             try {
               const dRes = await fetch(detailUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+                headers: { 
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Origin': `https://${host}`,
+                  'Referer': `https://${host}/en-US/${company.site}/`
+                },
                 signal: dCtrl.signal
               });
               clearTimeout(dTid);
@@ -1065,7 +1073,7 @@ async function fetchWorkdayJobs(
                   company: company.name,
                   location: loc,
                   description: desc,
-                  url: `https://${company.tenant}.myworkdayjobs.com/en-US/${company.site}${p.externalPath}`,
+                  url: `https://${host}/en-US/${company.site}${p.externalPath}`,
                   postedAt: p.postedOn || new Date().toISOString(),
                   type: 'Full-Time',
                   isRemote: loc.toLowerCase().includes('remote'),
@@ -1087,7 +1095,7 @@ async function fetchWorkdayJobs(
               company: company.name,
               location: loc,
               description: 'Position details available on application site.',
-              url: `https://${company.tenant}.myworkdayjobs.com/en-US/${company.site}${p.externalPath}`,
+              url: `https://${host}/en-US/${company.site}${p.externalPath}`,
               postedAt: p.postedOn || new Date().toISOString(),
               type: 'Full-Time',
               isRemote: loc.toLowerCase().includes('remote'),
@@ -1317,6 +1325,51 @@ async function scoreCommunityJobs(
 }
 
 // 1.5. Endpoint to Source matching jobs from community boards and web searches (no LLM evaluation)
+function normalizeJobUrl(urlStr: string): string {
+  try {
+    const url = new URL(urlStr);
+    url.search = '';
+    url.hash = '';
+    let href = url.href.toLowerCase();
+    if (href.endsWith('/')) {
+      href = href.slice(0, -1);
+    }
+    return href;
+  } catch {
+    return urlStr.toLowerCase();
+  }
+}
+
+function extractJobNumber(urlStr: string): string | null {
+  try {
+    const url = new URL(urlStr);
+    const pathname = url.pathname;
+    
+    const workdayMatch = pathname.match(/(?:_|^-|job\/)(JR|R|JR-)[0-9]+/i);
+    if (workdayMatch) {
+      return workdayMatch[0].replace(/^_/, '').replace(/^job\//, '');
+    }
+    
+    const uuidMatch = pathname.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    if (uuidMatch) {
+      return uuidMatch[0];
+    }
+    
+    const pathParts = pathname.split('/').filter(Boolean);
+    if (pathParts.length > 0) {
+      const lastPart = pathParts[pathParts.length - 1];
+      if (/^\d+$/.test(lastPart)) {
+        return lastPart;
+      }
+      if (lastPart.length >= 8 && /^[0-9a-f\-]+$/i.test(lastPart)) {
+        return lastPart;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// 1.5. Endpoint to Source matching jobs from community boards and web searches (no LLM evaluation)
 app.post('/api/jobs/source', async (req, res) => {
   try {
     const {
@@ -1473,20 +1526,40 @@ app.post('/api/jobs/source', async (req, res) => {
     const allJobs = [...communityJobs, ...webScrapedJobs];
 
     // 1. Group jobs by company and deduplicate/filter out saved jobs
-    const seen = new Set<string>();
+    const seenTitles = new Set<string>();
+    const seenUrls = new Set<string>();
+    const seenJobIds = new Set<string>();
     const jobsByCompany: Record<string, RawCommunityJob[]> = {};
 
     for (const job of allJobs) {
-      const k = `${job.title.toLowerCase()}|${job.company.toLowerCase()}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
+      const titleKey = `${job.title.toLowerCase().trim()}|${job.company.toLowerCase().trim()}`;
+      const urlKey = normalizeJobUrl(job.url);
+      const jobIdKey = extractJobNumber(job.url);
+
+      if (seenTitles.has(titleKey) || seenUrls.has(urlKey) || (jobIdKey && seenJobIds.has(jobIdKey))) {
+        continue;
+      }
 
       // Check duplicates against savedJobs
-      const isSaved = savedJobs.some((s: any) =>
-        s.title.toLowerCase() === job.title.toLowerCase() &&
-        s.company.toLowerCase() === job.company.toLowerCase()
-      );
+      const isSaved = savedJobs.some((s: any) => {
+        if (s.title.toLowerCase().trim() === job.title.toLowerCase().trim() &&
+            s.company.toLowerCase().trim() === job.company.toLowerCase().trim()) {
+          return true;
+        }
+        const sUrl = normalizeJobUrl(s.url || '');
+        if (sUrl === urlKey) return true;
+
+        const sJobId = extractJobNumber(s.url || '');
+        if (jobIdKey && sJobId && sJobId === jobIdKey) return true;
+
+        return false;
+      });
+
       if (isSaved) continue;
+
+      seenTitles.add(titleKey);
+      seenUrls.add(urlKey);
+      if (jobIdKey) seenJobIds.add(jobIdKey);
 
       const comp = job.company.toLowerCase().trim();
       if (!jobsByCompany[comp]) {
@@ -1504,7 +1577,7 @@ app.post('/api/jobs/source', async (req, res) => {
       });
     }
 
-    // 3. Round-robin select: take index 0 of all companies (shuffled), then index 1 (max 2 jobs per company)
+    // 3. Round-robin select: take index 0 of all companies (shuffled), then index 1 (max 5 jobs per company)
     const roundRobinJobs: RawCommunityJob[] = [];
     const companies = Object.keys(jobsByCompany);
     
@@ -1516,7 +1589,7 @@ app.post('/api/jobs/source', async (req, res) => {
 
     let hasMore = true;
     let round = 0;
-    const maxRounds = 2;
+    const maxRounds = 5;
 
     while (hasMore && round < maxRounds) {
       hasMore = false;
@@ -1538,8 +1611,16 @@ app.post('/api/jobs/source', async (req, res) => {
     });
 
     res.json({
-      jobs: roundRobinJobs.slice(0, 15),
-      warnings: health.warnings
+      jobs: roundRobinJobs.slice(0, 40),
+      warnings: health.warnings,
+      sourcingStats: {
+        greenhouse: { count: ghJobs.length, status: health.greenhouse ? 'ok' : 'skipped' },
+        lever: { count: lvJobs.length, status: health.lever ? 'ok' : 'skipped' },
+        workday: { count: wdJobs.length, status: health.workday ? 'ok' : 'skipped' },
+        smartrecruiters: { count: srJobs.length, status: health.smartrecruiters ? 'ok' : 'skipped' },
+        remoteok: { count: rokJobs.length, status: (prefersRemote || prefersHybrid) ? 'ok' : 'skipped' },
+        websearch: { count: webScrapedJobs.length, status: 'ok' }
+      }
     });
   } catch (err: any) {
     console.error('[Source Endpoint] Error:', err);

@@ -27,6 +27,50 @@ import {
 import { Job, JobTypeType, JobStatusType, ResumeProfile, LLMConfig } from '../types';
 import { generateDynamicFeed } from '../data/jobFeed';
 
+const normalizeJobUrl = (urlStr: string): string => {
+  try {
+    const url = new URL(urlStr);
+    url.search = '';
+    url.hash = '';
+    let href = url.href.toLowerCase();
+    if (href.endsWith('/')) {
+      href = href.slice(0, -1);
+    }
+    return href;
+  } catch {
+    return urlStr.toLowerCase();
+  }
+};
+
+const extractJobNumber = (urlStr: string): string | null => {
+  try {
+    const url = new URL(urlStr);
+    const pathname = url.pathname;
+    
+    const workdayMatch = pathname.match(/(?:_|^-|job\/)(JR|R|JR-)[0-9]+/i);
+    if (workdayMatch) {
+      return workdayMatch[0].replace(/^_/, '').replace(/^job\//, '');
+    }
+    
+    const uuidMatch = pathname.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    if (uuidMatch) {
+      return uuidMatch[0];
+    }
+    
+    const pathParts = pathname.split('/').filter(Boolean);
+    if (pathParts.length > 0) {
+      const lastPart = pathParts[pathParts.length - 1];
+      if (/^\d+$/.test(lastPart)) {
+        return lastPart;
+      }
+      if (lastPart.length >= 8 && /^[0-9a-f\-]+$/i.test(lastPart)) {
+        return lastPart;
+      }
+    }
+  } catch {}
+  return null;
+};
+
 interface JobScannerProps {
   profile: ResumeProfile;
   llmConfig: LLMConfig;
@@ -284,10 +328,22 @@ export default function JobScanner({
       const sourceData = await sourceResponse.json();
       const rawJobs = Array.isArray(sourceData) ? sourceData : (sourceData.jobs || []);
       const warnings = (!Array.isArray(sourceData) && sourceData.warnings) ? sourceData.warnings : [];
+      const stats = (!Array.isArray(sourceData) && sourceData.sourcingStats) ? sourceData.sourcingStats : null;
       
       // Log health check warnings
       if (warnings.length > 0) {
         warnings.forEach((warn: string) => log(warn, "filterSkip"));
+      }
+
+      // Log detailed sourcing stats telemetry
+      if (stats) {
+        log(`[Telemetry] Sourcing sites summary:`, "fetch");
+        if (stats.greenhouse) log(`  - Greenhouse API: ${stats.greenhouse.count} jobs found (${stats.greenhouse.status})`, "fetch");
+        if (stats.lever) log(`  - Lever API: ${stats.lever.count} jobs found (${stats.lever.status})`, "fetch");
+        if (stats.workday) log(`  - Workday API (F500): ${stats.workday.count} jobs found (${stats.workday.status})`, "fetch");
+        if (stats.smartrecruiters) log(`  - SmartRecruiters API: ${stats.smartrecruiters.count} jobs found (${stats.smartrecruiters.status})`, "fetch");
+        if (stats.remoteok) log(`  - RemoteOK API: ${stats.remoteok.count} jobs found (${stats.remoteok.status})`, "fetch");
+        if (stats.websearch) log(`  - Web Search Grounding: ${stats.websearch.count} jobs found`, "fetch");
       }
 
       log(`Sourcing complete. Found ${rawJobs.length} potential matching jobs. Starting sequential evaluation.`, "filterMatch");
@@ -306,11 +362,93 @@ export default function JobScanner({
         : 'Candidate has not specified their years of experience — do not penalise based on experience requirements in either direction.';
 
       const fullyScoredJobs: Job[] = [];
+      let duplicatesSkipped = 0;
+
+      // Pre-evaluation filtering duplicate helper
+      const getDuplicateStatus = (job: any) => {
+        const titleL = job.title.toLowerCase().trim();
+        const companyL = job.company.toLowerCase().trim();
+        
+        // 1. Check title + company
+        const inSaved = savedJobs.some(s => s.title.toLowerCase().trim() === titleL && s.company.toLowerCase().trim() === companyL);
+        if (inSaved) return { isDup: true, reason: "Already saved in Board" };
+        
+        const inWatchlist = watchlist.some(w => w.title.toLowerCase().trim() === titleL && w.company.toLowerCase().trim() === companyL);
+        if (inWatchlist) return { isDup: true, reason: "Already in Watchlist" };
+        
+        const key = `${companyL}|${titleL}`;
+        if (dismissedJobKeys.includes(key)) return { isDup: true, reason: "Dismissed / Blocked" };
+        
+        const inAlreadyScored = fullyScoredJobs.some(j => j.title.toLowerCase().trim() === titleL && j.company.toLowerCase().trim() === companyL);
+        if (inAlreadyScored) return { isDup: true, reason: "Already evaluated in this scan batch" };
+
+        // 2. Check URL (normalized)
+        const normUrl = normalizeJobUrl(job.url || '');
+        const urlMatch = (item: any) => normalizeJobUrl(item.url || '') === normUrl;
+        
+        if (savedJobs.some(urlMatch)) return { isDup: true, reason: "URL already saved in Board" };
+        if (watchlist.some(urlMatch)) return { isDup: true, reason: "URL already saved in Watchlist" };
+        if (fullyScoredJobs.some(urlMatch)) return { isDup: true, reason: "URL already evaluated in this scan batch" };
+
+        // 3. Check Job Number/ID (if extracted)
+        const jobNo = extractJobNumber(job.url || '');
+        if (jobNo) {
+          const idMatch = (item: any) => {
+            const itemNo = extractJobNumber(item.url || '');
+            return itemNo && itemNo === jobNo;
+          };
+          if (savedJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already saved in Board` };
+          if (watchlist.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already in Watchlist` };
+          if (fullyScoredJobs.some(idMatch)) return { isDup: true, reason: `Job ID #${jobNo} already evaluated in this scan batch` };
+        }
+
+        return { isDup: false, reason: "" };
+      };
 
       for (let i = 0; i < rawJobs.length; i++) {
         const rawJob = rawJobs[i];
+        const jobNo = extractJobNumber(rawJob.url || '');
+        const jobNoStr = jobNo ? ` (ID: ${jobNo})` : '';
+
+        // 1. Check duplicate BEFORE calling LLM
+        const dupCheck = getDuplicateStatus(rawJob);
+        if (dupCheck.isDup) {
+          log(
+            `[Job ${i + 1}/${rawJobs.length}] Skipped: "${rawJob.title}" at ${rawJob.company}${jobNoStr} is a duplicate. Reason: ${dupCheck.reason}.`,
+            "filterSkip"
+          );
+          duplicatesSkipped++;
+          continue;
+        }
+
+        // 2. Check company limit BEFORE calling LLM
+        const companyKey = rawJob.company.toLowerCase().trim();
+        const currentCompanyCount = [...scannedJobs, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
+        const maxPerCompany = profile.maxMatchesPerCompany || 3;
         
-        log(`[Job ${i + 1}/${rawJobs.length}] Evaluating "${rawJob.title}" at ${rawJob.company}...`, "fetch");
+        if (profile.limitCompanyMatches && currentCompanyCount >= maxPerCompany) {
+          log(
+            `[Job ${i + 1}/${rawJobs.length}] Skipped: Limit of ${maxPerCompany} positions reached for "${rawJob.company}". Excluded before LLM query.`,
+            "filterSkip"
+          );
+          continue;
+        }
+
+        // 3. Check board capacity BEFORE calling LLM
+        const currentTotalCount = [...scannedJobs, ...fullyScoredJobs].length;
+        const capacityLimit = profile.maxDiscoveredJobs || 30;
+        
+        if (currentTotalCount >= capacityLimit) {
+          log(
+            `[Job ${i + 1}/${rawJobs.length}] Skipped: Discover board capacity reached (${capacityLimit} slots). Halting scan before LLM query.`,
+            "filterSkip"
+          );
+          setIsAiRunning(false);
+          return;
+        }
+
+        // 4. All pre-evaluation filters passed, run LLM Evaluation
+        log(`[Job ${i + 1}/${rawJobs.length}] Evaluating "${rawJob.title}" at ${rawJob.company}${jobNoStr} (Source: ${rawJob.source})...`, "fetch");
 
         try {
           const evalRes = await fetch('/api/jobs/evaluate', {
@@ -343,74 +481,51 @@ export default function JobScanner({
               "scoreLow"
             );
           } else {
-            // Check duplicates
-            const isSaved = savedJobs.some(s => s.title.toLowerCase() === scoredJob.title.toLowerCase() && s.company.toLowerCase() === scoredJob.company.toLowerCase());
-            const isWatchlisted = watchlist.some(w => w.title.toLowerCase() === scoredJob.title.toLowerCase() && w.company.toLowerCase() === scoredJob.company.toLowerCase());
-            const key = `${scoredJob.company.toLowerCase()}|${scoredJob.title.toLowerCase()}`;
-            const isDismissed = dismissedJobKeys.includes(key);
+            // Live safety check (just in case count changed in async gap)
+            const liveCompanyCount = [...scannedJobs, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
+            const liveTotalCount = [...scannedJobs, ...fullyScoredJobs].length;
             
-            if (isSaved || isWatchlisted || isDismissed) {
-              let duplicateReason = "Already saved in Board";
-              if (isWatchlisted) duplicateReason = "Already in Watchlist";
-              if (isDismissed) duplicateReason = "Dismissed / Blocked";
+            if (profile.limitCompanyMatches && liveCompanyCount >= maxPerCompany) {
               log(
-                `[Job ${i + 1}/${rawJobs.length}] Skipped: Duplicate detected. Reason: ${duplicateReason}.`,
+                `[Job ${i + 1}/${rawJobs.length}] Excluded: Match Score was ${scoredJob.matchScore}%, but company limit of ${maxPerCompany} reached for "${scoredJob.company}".`,
+                "filterSkip"
+              );
+            } else if (liveTotalCount >= capacityLimit) {
+              log(
+                `[Job ${i + 1}/${rawJobs.length}] Excluded: Match Score was ${scoredJob.matchScore}%, but discovered board is full (${capacityLimit} slots).`,
                 "filterSkip"
               );
             } else {
-              // Check company limit
-              const companyKey = scoredJob.company.toLowerCase().trim();
-              const currentCompanyCount = [...scannedJobs, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
-              const maxPerCompany = profile.maxMatchesPerCompany || 3;
+              log(
+                `[Job ${i + 1}/${rawJobs.length}] Added: "${scoredJob.title}" (${scoredJob.company}) matched! Score: ${scoredJob.matchScore}% (Threshold: ${minScore}%). Reason: ${scoredJob.matchReason}`,
+                "scoreHigh"
+              );
+              fullyScoredJobs.push(scoredJob);
               
-              if (profile.limitCompanyMatches && currentCompanyCount >= maxPerCompany) {
-                log(
-                  `[Job ${i + 1}/${rawJobs.length}] Skipped: Exceeded maximum matches per company. Reason: Limit of ${maxPerCompany} positions reached for "${scoredJob.company}".`,
-                  "filterSkip"
-                );
-              } else {
-                // Check if capacity limit would clip it
-                const currentTotalCount = [...scannedJobs, ...fullyScoredJobs].length;
-                const capacityLimit = profile.maxDiscoveredJobs || 30;
-                
-                if (currentTotalCount >= capacityLimit) {
-                  log(
-                    `[Job ${i + 1}/${rawJobs.length}] Skipped: Memory capacity reached. Reason: Maximum slots of ${capacityLimit} used. Clean up your Discovered board to free up slots.`,
-                    "filterSkip"
-                  );
-                } else {
-                  log(
-                    `[Job ${i + 1}/${rawJobs.length}] Added: "${scoredJob.title}" (${scoredJob.company}) successfully matched! Score: ${scoredJob.matchScore}% (Threshold: ${minScore}%). Reason: ${scoredJob.matchReason}`,
-                    "scoreHigh"
-                  );
-                  fullyScoredJobs.push(scoredJob);
-                  
-                  // Update state in real-time
-                  setScannedJobs(prev => {
-                    const combined = [scoredJob, ...prev];
-                    const unique: Job[] = [];
-                    const seen = new Set<string>();
-                    const companyCounts = new Map<string, number>();
-                    const maxPerCompany = profile.maxMatchesPerCompany || 3;
-                    combined.sort((a, b) => b.matchScore - a.matchScore);
-                    for (const job of combined) {
-                      const k = `${job.title.toLowerCase()}|${job.company.toLowerCase()}`;
-                      const companyKey = job.company.toLowerCase().trim();
-                      if (!seen.has(k)) {
-                        if (profile.limitCompanyMatches) {
-                          const currentCount = companyCounts.get(companyKey) || 0;
-                          if (currentCount >= maxPerCompany) continue;
-                          companyCounts.set(companyKey, currentCount + 1);
-                        }
-                        seen.add(k);
-                        unique.push(job);
-                      }
+              // Update state in real-time
+              setScannedJobs(prev => {
+                const combined = [scoredJob, ...prev];
+                const unique: Job[] = [];
+                const seen = new Set<string>();
+                const companyCounts = new Map<string, number>();
+                const maxPerCompany = profile.maxMatchesPerCompany || 3;
+                combined.sort((a, b) => b.matchScore - a.matchScore);
+                for (const job of combined) {
+                  const k = `${job.title.toLowerCase()}|${job.company.toLowerCase()}`;
+                  const companyKey = job.company.toLowerCase().trim();
+                  if (!seen.has(k)) {
+                    if (profile.limitCompanyMatches) {
+                      const currentCount = companyCounts.get(companyKey) || 0;
+                      if (currentCount >= maxPerCompany) continue;
+                      companyCounts.set(companyKey, currentCount + 1);
                     }
-                    const limit = profile.maxDiscoveredJobs || 30;
-                    return unique.slice(0, limit);
-                  });
+                    seen.add(k);
+                    unique.push(job);
+                  }
                 }
-              }
+                const limit = profile.maxDiscoveredJobs || 30;
+                return unique.slice(0, limit);
+              });
             }
           }
 
@@ -432,7 +547,7 @@ export default function JobScanner({
       localStorage.setItem('job_agent_last_run_timestamp', String(Date.now()));
       
       // Update stats
-      onUpdateStats(fullyScoredJobs.length, 0);
+      onUpdateStats(fullyScoredJobs.length, duplicatesSkipped);
 
     } catch (err: any) {
       log(`Sequential scan failed: ${err.message}.`, "filterSkip");
