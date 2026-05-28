@@ -329,14 +329,6 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
             Input copy/pasted resume details to configure parsing queries for the Job Search Agent.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadSampleResume}
-            className="text-xs px-3.6 py-2 rounded-lg border border-white/10 text-slate-300 hover:bg-white/5 bg-slate-900/40 transition-colors cursor-pointer"
-          >
-            Load Resume
-          </button>
-        </div>
       </div>
 
       <div className="space-y-5 font-sans">
