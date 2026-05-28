@@ -41,8 +41,9 @@ export default function AgentSettings({
     }
 
     try {
+      const clientTimeoutMs = Math.max(8000, (llmConfig.timeout || 30) * 1000);
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 seconds timeout
+      const timeoutId = setTimeout(() => controller.abort(), clientTimeoutMs);
 
       // Route request safely through backend server proxy to bypass CORS
       const response = await fetch('/api/llm/proxy', {
@@ -53,6 +54,7 @@ export default function AgentSettings({
         body: JSON.stringify({
           endpoint: targetUrl,
           apiKey: llmConfig.apiKey,
+          timeout: llmConfig.timeout || 30,
           body: {
             model: llmConfig.modelName || 'test',
             messages: [
@@ -165,6 +167,31 @@ export default function AgentSettings({
                 className="w-full px-3 py-2 text-sm bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono placeholder-slate-650"
                 placeholder="Enter API Key if required by endpoint"
               />
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-semibold text-slate-400">
+                  LLM Request Timeout
+                </label>
+                <span className="text-xs font-semibold text-indigo-400 font-mono">
+                  {llmConfig.timeout || 30} seconds
+                </span>
+              </div>
+              <div className="flex items-center gap-4">
+                <input
+                  type="range"
+                  min="5"
+                  max="120"
+                  step="5"
+                  value={llmConfig.timeout || 30}
+                  onChange={(e) => onChangeLLMConfig({ ...llmConfig, timeout: parseInt(e.target.value) })}
+                  className="w-full h-1.5 bg-slate-900 border-none rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                />
+              </div>
+              <span className="text-[10px] text-slate-500">
+                Recommended: 30s for local models running on CPU/consumer-grade GPUs, 10s-15s for high-speed APIs.
+              </span>
             </div>
 
             <div className="pt-3.5 border-t border-white/5 space-y-3" id="connection-tester-diagnostic-suite">

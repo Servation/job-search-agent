@@ -48,7 +48,8 @@ async function queryCustomLLM(
   apiKey: string,
   modelName: string,
   prompt: string,
-  attemptsLeft = 2
+  attemptsLeft = 2,
+  timeoutMs = 30000
 ): Promise<string> {
   let targetUrl = endpoint.trim();
   if (targetUrl.endsWith('/chat/completions')) {
@@ -77,7 +78,7 @@ async function queryCustomLLM(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(cleanCompletionsUrl, {
@@ -102,16 +103,16 @@ async function queryCustomLLM(
   } catch (err: any) {
     clearTimeout(timeoutId);
     const isTimeout = err.name === 'AbortError';
-    const errMsg = isTimeout ? 'LLM Request Timeout (30000ms limit exceeded)' : err.message;
+    const errMsg = isTimeout ? `LLM Request Timeout (${timeoutMs}ms limit exceeded)` : err.message;
     
     if (attemptsLeft > 1) {
       console.warn(`[queryCustomLLM] Attempt failed: ${errMsg}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
       await new Promise(resolve => setTimeout(resolve, 1500));
-      return queryCustomLLM(endpoint, apiKey, modelName, prompt, attemptsLeft - 1);
+      return queryCustomLLM(endpoint, apiKey, modelName, prompt, attemptsLeft - 1, timeoutMs);
     }
     
     if (isTimeout) {
-      throw new Error(`LLM Request Timeout (30000ms limit exceeded)`);
+      throw new Error(`LLM Request Timeout (${timeoutMs}ms limit exceeded)`);
     }
     throw err;
   }
@@ -188,7 +189,9 @@ app.post('/api/resume/parse', async (req, res) => {
       llmConfig.endpoint,
       llmConfig.apiKey,
       llmConfig.modelName,
-      prompt
+      prompt,
+      2,
+      (llmConfig.timeout || 30) * 1000
     );
 
     // Clean any markdown code blocks if the LLM outputted them anyway
@@ -1437,7 +1440,14 @@ async function scoreCommunityJobs(
         Experience rule: ${experienceContext}
         Return ONLY a raw JSON object (no markdown):
         {"matchScore":85,"matchReason":"Brief analysis","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
-      const txt = await queryCustomLLM(llmConfig.endpoint, llmConfig.apiKey, llmConfig.modelName, evalPrompt);
+      const txt = await queryCustomLLM(
+        llmConfig.endpoint,
+        llmConfig.apiKey,
+        llmConfig.modelName,
+        evalPrompt,
+        2,
+        (llmConfig.timeout || 30) * 1000
+      );
       const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
       const ev = JSON.parse(cleaned);
       return {
@@ -1856,7 +1866,14 @@ app.post('/api/jobs/evaluate', async (req, res) => {
         Return ONLY a raw JSON object (no markdown):
         {"matchScore":85,"matchReason":"Brief analysis","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
       
-      const txt = await queryCustomLLM(llmConfig.endpoint, llmConfig.apiKey, llmConfig.modelName, evalPrompt);
+      const txt = await queryCustomLLM(
+        llmConfig.endpoint,
+        llmConfig.apiKey,
+        llmConfig.modelName,
+        evalPrompt,
+        2,
+        (llmConfig.timeout || 30) * 1000
+      );
       const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
       const ev = JSON.parse(cleaned);
       
@@ -2113,7 +2130,9 @@ app.post('/api/jobs/scan', async (req, res) => {
                 llmConfig.endpoint,
                 llmConfig.apiKey,
                 llmConfig.modelName,
-                evalPrompt
+                evalPrompt,
+                2,
+                (llmConfig.timeout || 30) * 1000
               );
               
               let cleanedText = responseText.trim();
@@ -2300,7 +2319,9 @@ app.post('/api/jobs/scan', async (req, res) => {
               llmConfig.endpoint,
               llmConfig.apiKey,
               llmConfig.modelName,
-              evalPrompt
+              evalPrompt,
+              2,
+              (llmConfig.timeout || 30) * 1000
             );
             
             let cleanedJSON = modelResText.trim();
@@ -2401,7 +2422,7 @@ app.post('/api/jobs/scan', async (req, res) => {
 // 3. Proxy Endpoint to Route Custom LLM requests (Bypasses Browser CORS/Mixed-Content Rules)
 app.post('/api/llm/proxy', async (req, res) => {
   try {
-    const { endpoint, body, apiKey } = req.body;
+    const { endpoint, body, apiKey, timeout = 30 } = req.body;
     if (!endpoint) {
       res.status(400).json({ error: 'Endpoint parameter is required' });
       return;
@@ -2412,10 +2433,11 @@ app.post('/api/llm/proxy', async (req, res) => {
       targetUrl = targetUrl.replace(/\/chat\/completions$/, '');
     }
     const cleanCompletionsUrl = `${targetUrl}/chat/completions`;
+    const timeoutMs = timeout * 1000;
 
     const executeFetch = async (attemptsLeft = 2): Promise<Response> => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
         const resObj = await fetch(cleanCompletionsUrl, {
@@ -2433,7 +2455,7 @@ app.post('/api/llm/proxy', async (req, res) => {
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isTimeout = err.name === 'AbortError';
-        const errMsg = isTimeout ? 'LLM Request Timeout (30000ms limit exceeded)' : err.message;
+        const errMsg = isTimeout ? `LLM Request Timeout (${timeoutMs}ms limit exceeded)` : err.message;
 
         if (attemptsLeft > 1) {
           console.warn(`[Proxy Custom LLM] Attempt failed: ${errMsg}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
@@ -2460,8 +2482,9 @@ app.post('/api/llm/proxy', async (req, res) => {
   } catch (err: any) {
     console.error('Error in Custom LLM Proxy:', err);
     const isTimeout = err.name === 'AbortError' || err.message?.includes('Timeout');
+    const proxyTimeoutMs = (req.body?.timeout || 30) * 1000;
     res.status(isTimeout ? 408 : 500).json({ 
-      error: isTimeout ? 'LLM Proxy Request Timeout (30000ms limit exceeded)' : (err.message || 'Failed to connect to the custom LLM endpoint.')
+      error: isTimeout ? `LLM Proxy Request Timeout (${proxyTimeoutMs}ms limit exceeded)` : (err.message || 'Failed to connect to the custom LLM endpoint.')
     });
   }
 });

@@ -39,6 +39,7 @@ export interface LLMConfig {
   endpoint: string; // e.g. "http://localhost:1234/v1" for LM Studio
   apiKey: string; // custom key if not using default
   modelName: string; // e.g., "gemini-3.5-flash", "mistral", etc.
+  timeout?: number; // request timeout in seconds
 }
 
 export interface ResumeProfile {

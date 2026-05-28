@@ -148,7 +148,11 @@ export default function App() {
             endpoint: 'http://localhost:1234/v1',
             apiKey: '',
             modelName: 'meta-llama-3-8b-instruct',
+            timeout: 30,
           };
+        }
+        if (parsed && typeof parsed.timeout !== 'number') {
+          parsed.timeout = 30;
         }
         return parsed;
       } catch (e) { /* ignore */ }
@@ -158,6 +162,7 @@ export default function App() {
       endpoint: 'http://localhost:1234/v1',
       apiKey: '',
       modelName: 'meta-llama-3-8b-instruct',
+      timeout: 30,
     };
   });
 
