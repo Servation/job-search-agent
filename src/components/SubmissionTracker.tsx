@@ -697,6 +697,31 @@ export default function SubmissionTracker({
                     </span>
                   )}
 
+                  {j.sourceTag && (
+                    <span className={`inline-flex items-center text-[10px] font-bold border uppercase tracking-wider px-2 py-1 rounded-lg ${
+                      j.sourceTag === 'hackernews' ? 'bg-orange-950/45 border-orange-500/20 text-orange-400' :
+                      j.sourceTag === 'remotive' ? 'bg-purple-950/45 border-purple-500/20 text-purple-400' :
+                      j.sourceTag === 'remoteok' ? 'bg-pink-950/45 border-pink-500/20 text-pink-400' :
+                      j.sourceTag === 'greenhouse' ? 'bg-emerald-950/45 border-emerald-500/20 text-emerald-400' :
+                      j.sourceTag === 'lever' ? 'bg-teal-950/45 border-teal-500/20 text-teal-400' :
+                      j.sourceTag === 'ashby' ? 'bg-cyan-950/45 border-cyan-500/20 text-cyan-400' :
+                      j.sourceTag === 'workday' ? 'bg-blue-950/45 border-blue-500/20 text-blue-400' :
+                      j.sourceTag === 'smartrecruiters' ? 'bg-violet-950/45 border-violet-500/20 text-violet-400' :
+                      'bg-slate-950 border-white/5 text-slate-350 font-mono'
+                    }`}>
+                      {j.sourceTag === 'hackernews' ? 'Hacker News' : j.sourceTag}
+                    </span>
+                  )}
+
+                  {j.retryTier !== undefined && j.retryTier >= 1 && (
+                    <span 
+                      className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-1 rounded-lg bg-amber-950/40 border border-amber-500/20 text-amber-400 cursor-help"
+                      title={`This job was evaluated with reduced context (Tier ${j.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
+                    >
+                      ⚠️ Reduced Context
+                    </span>
+                  )}
+
                   {hasUrl && (
                     <a
                       href={j.url}

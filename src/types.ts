@@ -30,6 +30,8 @@ export interface Job {
   isRemote?: boolean;
   salaryNum?: number;
   isUrlVerified?: boolean;
+  sourceTag?: string;
+  retryTier?: number;
 }
 
 export type LLMProvider = 'lmstudio' | 'openai';

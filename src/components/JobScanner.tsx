@@ -375,7 +375,7 @@ export default function JobScanner({
       });
 
       // 1. Phase 1: Source
-      log("Phase 1: Sourcing listings from Greenhouse, Lever, Workday, SmartRecruiters, RemoteOK, and search feeds...", "fetch");
+      log("Phase 1: Sourcing listings from Greenhouse, Lever, Workday, SmartRecruiters, RemoteOK, Remotive, Hacker News, and search feeds...", "fetch");
       const sourceResponse = await fetch('/api/jobs/source', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -419,6 +419,8 @@ export default function JobScanner({
         if (stats.workday) log(`  - Workday API (F500): ${stats.workday.count} jobs found (${stats.workday.status})`, "fetch");
         if (stats.smartrecruiters) log(`  - SmartRecruiters API: ${stats.smartrecruiters.count} jobs found (${stats.smartrecruiters.status})`, "fetch");
         if (stats.remoteok) log(`  - RemoteOK API: ${stats.remoteok.count} jobs found (${stats.remoteok.status})`, "fetch");
+        if (stats.remotive) log(`  - Remotive API: ${stats.remotive.count} jobs found (${stats.remotive.status})`, "fetch");
+        if (stats.hackernews) log(`  - Hacker News (Who is Hiring?): ${stats.hackernews.count} posts found (${stats.hackernews.status})`, "fetch");
         if (stats.websearch) log(`  - Web Search Grounding: ${stats.websearch.count} jobs found`, "fetch");
       }
 
@@ -561,8 +563,7 @@ export default function JobScanner({
           return;
         }
 
-        // 4. All pre-evaluation filters passed, run LLM Evaluation
-        log(`[Job ${i + 1}/${rawJobs.length}] Evaluating "${rawJob.title}" at ${rawJob.company}${jobNoStr} (Source: ${rawJob.source})...`, "fetch");
+        let iterationDelay = 1200;
 
         try {
           const evalRes = await fetch('/api/jobs/evaluate', {
@@ -586,12 +587,19 @@ export default function JobScanner({
 
           const scoredJob: Job = await evalRes.json();
           
+          const tier = scoredJob.retryTier || 0;
+          if (tier >= 1) {
+            iterationDelay = 3000;
+            log(`⚠️ LLM Health: Degraded mode active — using reduced context (Tier ${tier}) and extended timeouts.`, "filterSkip");
+          }
+
+          const tierText = tier === 1 ? ' (Reduced Context)' : tier === 2 ? ' (Minimal Context)' : '';
           const minScore = profile.minMatchScore || 70;
           const isBelowThreshold = scoredJob.matchScore < minScore;
           
           if (isBelowThreshold) {
             log(
-              `[Job ${i + 1}/${rawJobs.length}] Skipped: Match Score ${scoredJob.matchScore}% is below minimum threshold ${minScore}%. Reason: ${scoredJob.matchReason || 'Low match score.'}`,
+              `[Job ${i + 1}/${rawJobs.length}] Skipped: Match Score ${scoredJob.matchScore}% is below minimum threshold ${minScore}%${tierText}. Reason: ${scoredJob.matchReason || 'Low match score.'}`,
               "scoreLow"
             );
           } else {
@@ -612,7 +620,7 @@ export default function JobScanner({
               );
             } else {
               log(
-                `[Job ${i + 1}/${rawJobs.length}] Added: "${scoredJob.title}" (${scoredJob.company}) matched! Score: ${scoredJob.matchScore}% (Threshold: ${minScore}%). Reason: ${scoredJob.matchReason}`,
+                `[Job ${i + 1}/${rawJobs.length}] Added: "${scoredJob.title}" (${scoredJob.company}) matched! Score: ${scoredJob.matchScore}% (Threshold: ${minScore}%)${tierText}. Reason: ${scoredJob.matchReason}`,
                 "scoreHigh"
               );
               fullyScoredJobs.push(scoredJob);
@@ -646,11 +654,12 @@ export default function JobScanner({
 
         } catch (itemErr: any) {
           log(`[Job ${i + 1}/${rawJobs.length}] Evaluation failed: ${itemErr.message || itemErr}. Skipping.`, "filterSkip");
+          iterationDelay = 3000;
         }
 
-        // Delay between iterations (e.g. 1.2 seconds) to slow it down and create the deliberate verification effect
+        // Delay between iterations (e.g. 1.2 or 3.0 seconds) to slow it down and create the deliberate verification effect
         if (i < rawJobs.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1200));
+          await new Promise(resolve => setTimeout(resolve, iterationDelay));
         }
       }
 
@@ -1251,6 +1260,29 @@ export default function JobScanner({
                         <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-white/5 text-slate-300 text-[10px]">
                           {job.type} {job.isW2 && '· W2'}
                         </span>
+                        {job.sourceTag && (
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${
+                            job.sourceTag === 'hackernews' ? 'bg-orange-950/45 border-orange-500/20 text-orange-400' :
+                            job.sourceTag === 'remotive' ? 'bg-purple-950/45 border-purple-500/20 text-purple-400' :
+                            job.sourceTag === 'remoteok' ? 'bg-pink-950/45 border-pink-500/20 text-pink-400' :
+                            job.sourceTag === 'greenhouse' ? 'bg-emerald-950/45 border-emerald-500/20 text-emerald-400' :
+                            job.sourceTag === 'lever' ? 'bg-teal-950/45 border-teal-500/20 text-teal-400' :
+                            job.sourceTag === 'ashby' ? 'bg-cyan-950/45 border-cyan-500/20 text-cyan-400' :
+                            job.sourceTag === 'workday' ? 'bg-blue-950/45 border-blue-500/20 text-blue-450' :
+                            job.sourceTag === 'smartrecruiters' ? 'bg-violet-950/45 border-violet-500/20 text-violet-400' :
+                            'bg-slate-900 border-white/5 text-slate-300'
+                          }`}>
+                            {job.sourceTag === 'hackernews' ? 'Hacker News' : job.sourceTag}
+                          </span>
+                        )}
+                        {job.retryTier !== undefined && job.retryTier >= 1 && (
+                          <span 
+                            className="px-2 py-0.5 rounded-md bg-amber-950/40 border border-amber-500/20 text-amber-400 text-[10px] font-semibold flex items-center gap-1 cursor-help"
+                            title={`This job was evaluated with reduced context (Tier ${job.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
+                          >
+                            <span>⚠️</span> Reduced Context
+                          </span>
+                        )}
                       </div>
 
                       <p className="text-sm text-slate-350 leading-relaxed font-sans line-clamp-2">

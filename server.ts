@@ -40,16 +40,37 @@ function getAIClient(): GoogleGenAI {
   return aiClient;
 }
 
+const llmHealthState = {
+  consecutiveFailures: 0,
+  degradedMode: false,
+  totalAttempts: 0,
+  totalSuccesses: 0,
+  totalFailures: 0,
+};
+
+const CONTEXT_TIERS = [
+  { resumeChars: 1500, descriptionChars: 800, label: 'full' },      // Tier 0: Normal
+  { resumeChars: 1000, descriptionChars: 500, label: 'reduced' },   // Tier 1: Reduced
+  { resumeChars: 600,  descriptionChars: 300, label: 'minimal' },   // Tier 2: Minimal
+];
+
+function getContextLimits(isHN: boolean, tierIndex: number) {
+  const tier = CONTEXT_TIERS[tierIndex] || CONTEXT_TIERS[0];
+  return {
+    resumeChars: tier.resumeChars,
+    descriptionChars: isHN ? Math.max(tier.descriptionChars * 2, 500) : tier.descriptionChars
+  };
+}
+
 /**
- * Queries an OpenAI-compatible endpoint with a prompt.
+ * Performs raw LLM completion request.
  */
-async function queryCustomLLM(
+async function performLLMRequest(
   endpoint: string,
   apiKey: string,
   modelName: string,
   prompt: string,
-  attemptsLeft = 2,
-  timeoutMs = 30000
+  timeoutMs: number
 ): Promise<string> {
   let targetUrl = endpoint.trim();
   if (targetUrl.endsWith('/chat/completions')) {
@@ -72,7 +93,6 @@ async function queryCustomLLM(
     temperature: 0.1
   };
 
-  // Enable JSON mode for OpenAI if relevant
   if (targetUrl.includes('api.openai.com')) {
     body.response_format = { type: "json_object" };
   }
@@ -102,20 +122,108 @@ async function queryCustomLLM(
     return data.choices?.[0]?.message?.content || '{}';
   } catch (err: any) {
     clearTimeout(timeoutId);
-    const isTimeout = err.name === 'AbortError';
-    const errMsg = isTimeout ? `LLM Request Timeout (${timeoutMs}ms limit exceeded)` : err.message;
-    
-    if (attemptsLeft > 1) {
-      console.warn(`[queryCustomLLM] Attempt failed: ${errMsg}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      return queryCustomLLM(endpoint, apiKey, modelName, prompt, attemptsLeft - 1, timeoutMs);
-    }
-    
-    if (isTimeout) {
+    if (err.name === 'AbortError') {
       throw new Error(`LLM Request Timeout (${timeoutMs}ms limit exceeded)`);
     }
     throw err;
   }
+}
+
+/**
+ * Queries an OpenAI-compatible endpoint with a prompt using legacy signature.
+ */
+async function queryCustomLLM(
+  endpoint: string,
+  apiKey: string,
+  modelName: string,
+  prompt: string,
+  attemptsLeft = 2,
+  timeoutMs = 30000
+): Promise<string> {
+  try {
+    return await performLLMRequest(endpoint, apiKey, modelName, prompt, timeoutMs);
+  } catch (err: any) {
+    if (attemptsLeft > 1) {
+      console.warn(`[queryCustomLLM] Attempt failed: ${err.message}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return queryCustomLLM(endpoint, apiKey, modelName, prompt, attemptsLeft - 1, timeoutMs);
+    }
+    throw err;
+  }
+}
+
+/**
+ * Adaptive LLM query function with context reduction, escalating timeouts, and circuit breaker.
+ */
+async function queryCustomLLMAdaptive(
+  endpoint: string,
+  apiKey: string,
+  modelName: string,
+  promptBuilder: (resumeChars: number, descChars: number) => string,
+  baseTimeoutMs = 30000,
+  isHN = false
+): Promise<{ content: string; tier: number }> {
+  let startTier = 0;
+  let baseTimeout = baseTimeoutMs;
+
+  if (llmHealthState.degradedMode) {
+    startTier = 1;
+    baseTimeout = baseTimeoutMs * 1.5;
+    console.warn(`[queryCustomLLMAdaptive] LLM Sourcing: Running in DEGRADED mode. Starting at Tier 1 context, base timeout: ${baseTimeout}ms`);
+  }
+
+  const maxAttempts = 3;
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const currentTierIndex = Math.min(startTier + attempt, CONTEXT_TIERS.length - 1);
+    const limits = getContextLimits(isHN, currentTierIndex);
+    const attemptTimeoutMs = Math.round(baseTimeout * Math.pow(1.5, attempt));
+    const prompt = promptBuilder(limits.resumeChars, limits.descriptionChars);
+
+    console.log(`[queryCustomLLMAdaptive] Attempt ${attempt + 1}/${maxAttempts} (Tier ${currentTierIndex}: Resume ${limits.resumeChars} chars, Description ${limits.descriptionChars} chars) with timeout ${attemptTimeoutMs}ms`);
+
+    llmHealthState.totalAttempts++;
+
+    try {
+      const result = await performLLMRequest(endpoint, apiKey, modelName, prompt, attemptTimeoutMs);
+
+      // Success! Reset circuit breaker
+      if (llmHealthState.degradedMode) {
+        console.log(`[queryCustomLLMAdaptive] Success on Attempt ${attempt + 1} at Tier ${currentTierIndex}! Resetting degraded mode.`);
+      }
+      llmHealthState.consecutiveFailures = 0;
+      llmHealthState.degradedMode = false;
+      llmHealthState.totalSuccesses++;
+
+      return {
+        content: result,
+        tier: currentTierIndex
+      };
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[queryCustomLLMAdaptive] Attempt ${attempt + 1} failed: ${err.message || err}`);
+
+      if (attempt < maxAttempts - 1) {
+        const backoffBase = 1500 * Math.pow(1.5, attempt);
+        const jitter = (Math.random() * 600) - 300;
+        const delay = Math.max(100, Math.round(backoffBase + jitter));
+        console.log(`[queryCustomLLMAdaptive] Backoff delay: Waiting ${delay}ms before next attempt...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  // All attempts failed! Trigger degraded mode if threshold reached
+  llmHealthState.consecutiveFailures++;
+  llmHealthState.totalFailures++;
+
+  if (llmHealthState.consecutiveFailures >= 3 && !llmHealthState.degradedMode) {
+    llmHealthState.degradedMode = true;
+    console.warn(`[queryCustomLLMAdaptive] ⚠️ LLM Circuit Breaker: 3 consecutive failures reached. Entering DEGRADED mode for subsequent requests!`);
+  }
+
+  throw lastError || new Error(`LLM Query failed after ${maxAttempts} adaptive attempts.`);
 }
 
 /// 1. Endpoint to Parse Resume Raw Text or Document Files
@@ -438,7 +546,17 @@ const WORKDAY_DIRECTORY: WorkdayCompany[] = [
   { name: 'Autodesk', tenant: 'autodesk', site: 'Ext', host: 'autodesk.wd1.myworkdayjobs.com' },
   { name: 'Walmart', tenant: 'walmart', site: 'Walmart_Careers', host: 'walmart.wd1.myworkdayjobs.com' },
   { name: 'Target', tenant: 'target', site: 'targetcareers', host: 'target.wd5.myworkdayjobs.com' },
-  { name: 'Intuit', tenant: 'intuit', site: 'External', host: 'intuit.wd5.myworkdayjobs.com' }
+  { name: 'Intuit', tenant: 'intuit', site: 'External', host: 'intuit.wd5.myworkdayjobs.com' },
+  { name: 'Intel', tenant: 'intel', site: 'External', host: 'intel.wd1.myworkdayjobs.com' },
+  { name: 'CrowdStrike', tenant: 'crowdstrike', site: 'crowdstrike', host: 'crowdstrike.wd5.myworkdayjobs.com' },
+  { name: 'Okta', tenant: 'okta', site: 'External', host: 'okta.wd1.myworkdayjobs.com' },
+  { name: 'PayPal', tenant: 'paypal', site: 'jobs', host: 'paypal.wd1.myworkdayjobs.com' },
+  { name: 'Block', tenant: 'block', site: 'Careers', host: 'block.wd5.myworkdayjobs.com' },
+  { name: 'Broadcom', tenant: 'broadcom', site: 'External', host: 'broadcom.wd1.myworkdayjobs.com' },
+  { name: 'ServiceNow', tenant: 'servicenow', site: 'ServiceNow_Careers', host: 'servicenow.wd1.myworkdayjobs.com' },
+  { name: 'HP', tenant: 'hp', site: 'ExternalCareerSite', host: 'hp.wd5.myworkdayjobs.com' },
+  { name: 'Splunk', tenant: 'splunk', site: 'Splunk_External_Careers', host: 'splunk.wd4.myworkdayjobs.com' },
+  { name: 'Palo Alto Networks', tenant: 'paloaltonetworks', site: 'Palo_Alto_Networks_External_Careers', host: 'paloaltonetworks.wd1.myworkdayjobs.com' }
 ];
 
 interface SmartRecruitersCompany {
@@ -944,7 +1062,7 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 interface RawCommunityJob {
   title: string; company: string; location: string; description: string;
   url: string; applyUrl?: string; postedAt: string; type: string;
-  salary?: string; isRemote: boolean; source: 'greenhouse' | 'lever' | 'workday' | 'smartrecruiters' | 'ashby' | 'remoteok' | 'websearch';
+  salary?: string; isRemote: boolean; source: 'greenhouse' | 'lever' | 'workday' | 'smartrecruiters' | 'ashby' | 'remoteok' | 'websearch' | 'remotive' | 'hackernews';
 }
 
 async function fetchGreenhouseJobs(
@@ -1411,6 +1529,164 @@ async function fetchRemoteOKJobs(
   } catch { clearTimeout(tid); console.warn('[RemoteOK] Fetch failed'); return []; }
 }
 
+async function fetchRemotiveJobs(
+  keywords: string[],
+  skills: string[],
+  targetRoles: string[],
+  searchLocation: string,
+  prefersRemote: boolean,
+  yearsOfExperience: number = 0
+): Promise<RawCommunityJob[]> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const categories: string[] = [];
+    const rolesLower = targetRoles.map(r => r.toLowerCase());
+    
+    if (rolesLower.some(r => r.includes('design') || r.includes('ui') || r.includes('ux') || r.includes('creative'))) {
+      categories.push('design');
+    }
+    if (rolesLower.some(r => r.includes('product') || r.includes('pm') || r.includes('program manager'))) {
+      categories.push('product');
+    }
+    if (rolesLower.some(r => r.includes('data') || r.includes('analyst') || r.includes('analytics') || r.includes('science'))) {
+      categories.push('data');
+    }
+    if (rolesLower.some(r => r.includes('devops') || r.includes('sre') || r.includes('reliability') || r.includes('infrastructure') || r.includes('sysadmin') || r.includes('platform'))) {
+      categories.push('devops');
+    }
+    
+    if (categories.length === 0 || rolesLower.some(r => r.includes('software') || r.includes('engineer') || r.includes('developer') || r.includes('frontend') || r.includes('backend') || r.includes('fullstack') || r.includes('web') || r.includes('tech'))) {
+      categories.push('software-development');
+    }
+
+    const allJobs: RawCommunityJob[] = [];
+    const allKw = [...keywords, ...skills.map(s => s.toLowerCase())];
+
+    await Promise.all(categories.map(async (category) => {
+      const url = `https://remotive.com/api/remote-jobs?category=${category}`;
+      try {
+        const res = await fetch(url, {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobSearchAgent/1.0)' },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const raw = data.jobs || [];
+        const mapped = raw
+          .filter((j: any) => {
+            if (!j.title || !j.company_name) return false;
+            const title = j.title;
+            const tags = (j.tags || []).map((t: string) => t.toLowerCase());
+            const loc = j.candidate_required_location || 'Remote';
+            
+            const titleMatches = matchesKeywords(title, allKw) || tags.some((t: string) => allKw.some(kw => t.includes(kw)));
+            return titleMatches &&
+                   !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
+                   !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
+                   matchesLocation(loc, searchLocation, prefersRemote);
+          })
+          .map((j: any) => ({
+            title: j.title,
+            company: j.company_name,
+            location: j.candidate_required_location || 'Remote',
+            description: j.description ? stripHtmlCommunity(j.description).slice(0, 1800) : '',
+            url: j.url || '',
+            postedAt: j.publication_date || new Date().toISOString(),
+            type: j.job_type === 'contract' ? 'Contract' : 'Full-Time',
+            salary: j.salary || undefined,
+            isRemote: true,
+            source: 'remotive' as const,
+          }));
+        allJobs.push(...mapped);
+      } catch (e: any) {
+        console.warn(`[Remotive] Category ${category} fetch failed:`, e.message);
+      }
+    }));
+
+    clearTimeout(tid);
+    
+    const seen = new Set<string>();
+    return allJobs.filter(job => {
+      const key = `${job.title.toLowerCase().trim()}|${job.company.toLowerCase().trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+  } catch (err: any) {
+    clearTimeout(tid);
+    console.warn('[Remotive] Sourcing failed:', err.message);
+    return [];
+  }
+}
+
+async function fetchHackerNewsJobs(
+  keywords: string[],
+  skills: string[],
+  targetRoles: string[],
+  searchLocation: string,
+  prefersRemote: boolean,
+  yearsOfExperience: number = 0
+): Promise<RawCommunityJob[]> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const searchUrl = 'https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&query=Who%20is%2520hiring';
+    const searchRes = await fetch(searchUrl, { signal: ctrl.signal });
+    if (!searchRes.ok) return [];
+    const searchData = await searchRes.json();
+    const hits = searchData.hits || [];
+    const story = hits.find((h: any) => h.title && h.title.includes("Who is hiring?"));
+    if (!story) {
+      console.warn('[HackerNews] Latest hiring story not found in hits');
+      return [];
+    }
+
+    const itemUrl = `https://hn.algolia.com/api/v1/items/${story.objectID}`;
+    const itemRes = await fetch(itemUrl, { signal: ctrl.signal });
+    if (!itemRes.ok) return [];
+    const itemData = await itemRes.json();
+    const comments = itemData.children || [];
+
+    const allKw = [...keywords, ...skills.map(s => s.toLowerCase())];
+    const results: RawCommunityJob[] = [];
+
+    for (const comment of comments) {
+      if (!comment.text) continue;
+      
+      const rawText = comment.text;
+      const strippedText = stripHtmlCommunity(rawText);
+      const textLower = strippedText.toLowerCase();
+
+      const hasKeywords = allKw.some(kw => textLower.includes(kw));
+      if (!hasKeywords) continue;
+
+      const lines = strippedText.split('\n').map(l => l.trim()).filter(Boolean);
+      const firstLine = lines[0] ? lines[0].substring(0, 80) : 'Hacker News Post';
+
+      results.push({
+        title: firstLine,
+        company: 'Hacker News Community',
+        location: 'Remote / On-site',
+        description: strippedText.slice(0, 1800),
+        url: `https://news.ycombinator.com/item?id=${comment.id}`,
+        postedAt: comment.created_at || new Date().toISOString(),
+        type: 'Full-Time',
+        isRemote: true,
+        source: 'hackernews' as const,
+      });
+    }
+
+    clearTimeout(tid);
+    return results;
+  } catch (err: any) {
+    clearTimeout(tid);
+    console.warn('[HackerNews] Sourcing failed:', err.message);
+    return [];
+  }
+}
+
 async function scoreCommunityJobs(
   jobs: RawCommunityJob[], rawText: string, llmConfig: any,
   experienceContext: string, savedJobs: any[]
@@ -1431,31 +1707,71 @@ async function scoreCommunityJobs(
       skillsRequired: [], industry: '', experienceLevel: 'Mid',
       salaryNum: 0, matchScore: 50, matchReason: '', sourceTag: job.source,
     };
-    if (!llmConfig?.endpoint || !rawText) return base;
     try {
-      const evalPrompt = `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, 1500)}"""
+      const isHN = job.source === 'hackernews';
+      const promptBuilder = (resumeLimit: number, descLimit: number) => {
+        if (isHN) {
+          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this Hacker News "Who is hiring?" job posting.
+        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
+        Hacker News Post Description:
+        """
+        ${job.description.slice(0, descLimit)}
+        """
+        Experience rule: ${experienceContext}
+        
+        Since this is a raw community forum post, you MUST identify and extract the following:
+        1. "company": The actual name of the hiring company (do NOT return "Hacker News Community").
+        2. "title": A concise job title (e.g. "Senior Software Engineer" or "Full-Stack Developer").
+        3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
+        
+        Return ONLY a raw JSON object (no markdown):
+        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
+        } else {
+          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
+        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
         Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, 800)}
+        Description: ${job.description.slice(0, descLimit)}
         Experience rule: ${experienceContext}
         Return ONLY a raw JSON object (no markdown):
         {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
-      const txt = await queryCustomLLM(
+        }
+      };
+
+      const result = await queryCustomLLMAdaptive(
         llmConfig.endpoint,
         llmConfig.apiKey,
         llmConfig.modelName,
-        evalPrompt,
-        2,
-        (llmConfig.timeout || 30) * 1000
+        promptBuilder,
+        (llmConfig.timeout || 30) * 1000,
+        isHN
       );
+
+      const txt = result.content;
+      const tier = result.tier;
+
       const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
       const ev = JSON.parse(cleaned);
+      
+      const finalTitle = (job.source === 'hackernews' && ev.title && ev.title !== 'Extracted Title') ? ev.title : base.title;
+      const finalCompany = (job.source === 'hackernews' && ev.company && ev.company !== 'Extracted Company') ? ev.company : base.company;
+      const finalLocation = (job.source === 'hackernews' && ev.location && ev.location !== 'Extracted Location') ? ev.location : base.location;
+      
+      const existsInSaved = savedJobs.some((s: any) =>
+        s.title.toLowerCase().trim() === finalTitle.toLowerCase().trim() &&
+        s.company.toLowerCase().trim() === finalCompany.toLowerCase().trim()
+      );
+
       return {
         ...base,
+        title: finalTitle,
+        company: finalCompany,
+        location: finalLocation,
+        isDuplicate: base.isDuplicate || existsInSaved,
         matchScore: typeof ev.matchScore === 'number' ? Math.min(100, Math.max(0, ev.matchScore)) : 50,
         matchReason: ev.matchReason || '', skillsRequired: ev.skillsRequired || [],
         industry: ev.industry || '', experienceLevel: ev.experienceLevel || 'Mid',
         salaryNum: typeof ev.salaryNum === 'number' ? ev.salaryNum : 0,
+        retryTier: tier,
       };
     } catch (e: any) {
       console.warn(`[Community] LLM score failed for "${job.title}":`, e.message);
@@ -1534,17 +1850,19 @@ app.post('/api/jobs/source', async (req, res) => {
 
     console.log('[Source Endpoint] Sourcing community and F500 jobs...');
     // 1. Fetch community and F500 jobs in parallel, bypassing degraded/offline channels
-    const [ghJobs, lvJobs, ashJobs, wdJobs, srJobs, rokJobs] = await Promise.all([
+    const [ghJobs, lvJobs, ashJobs, wdJobs, srJobs, rokJobs, remJobs, hnJobs] = await Promise.all([
       health.greenhouse ? fetchGreenhouseJobs(cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.lever ? fetchLeverJobs(cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.ashby ? fetchAshbyJobs(cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.workday ? fetchWorkdayJobs(cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.smartrecruiters ? fetchSmartRecruitersJobs(cachedSmartRecruitersDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       (prefersRemote || prefersHybrid) ? fetchRemoteOKJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+      (prefersRemote || prefersHybrid) ? fetchRemotiveJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+      fetchHackerNewsJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
     ]);
 
-    let communityJobs = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs, ...srJobs, ...rokJobs];
-    console.log(`[Source Endpoint] Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}, SmartRecruiters: ${srJobs.length}, RemoteOK: ${rokJobs.length}`);
+    let communityJobs = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs, ...srJobs, ...rokJobs, ...remJobs, ...hnJobs];
+    console.log(`[Source Endpoint] Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}, SmartRecruiters: ${srJobs.length}, RemoteOK: ${rokJobs.length}, Remotive: ${remJobs.length}, HackerNews: ${hnJobs.length}`);
 
     // 2. Fetch search engine grounding links (DuckDuckGo/Yahoo) to expand findings
     console.log('[Source Endpoint] Sourcing web search links...');
@@ -1788,6 +2106,8 @@ app.post('/api/jobs/source', async (req, res) => {
         workday: { count: wdJobs.length, status: health.workday ? 'ok' : 'skipped' },
         smartrecruiters: { count: srJobs.length, status: health.smartrecruiters ? 'ok' : 'skipped' },
         remoteok: { count: rokJobs.length, status: (prefersRemote || prefersHybrid) ? 'ok' : 'skipped' },
+        remotive: { count: remJobs.length, status: (prefersRemote || prefersHybrid) ? 'ok' : 'skipped' },
+        hackernews: { count: hnJobs.length, status: 'ok' },
         websearch: { count: webScrapedJobs.length, status: 'ok' }
       }
     });
@@ -1838,6 +2158,7 @@ app.post('/api/jobs/evaluate', async (req, res) => {
       salaryNum: 0,
       matchScore: 50,
       matchReason: 'Evaluated with default scoring.',
+      sourceTag: job.sourceTag || job.source || 'community',
     };
 
     // Verify URL
@@ -1853,10 +2174,41 @@ app.post('/api/jobs/evaluate', async (req, res) => {
 
     try {
       console.log(`[Evaluate Endpoint] Scoring ${job.title} at ${job.company} via custom LLM...`);
-      const evalPrompt = `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, 1500)}"""
+      const isHN = job.source === 'hackernews' || job.sourceTag === 'hackernews';
+      
+      const promptBuilder = (resumeLimit: number, descLimit: number) => {
+        if (isHN) {
+          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this Hacker News "Who is hiring?" job posting.
+        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
+        Hacker News Post Description:
+        """
+        ${job.description.slice(0, descLimit)}
+        """
+        Experience rule: ${experienceContext}
+        
+        Candidate Preferred Location: ${searchLocation}
+        Work Location Settings: Remote Preferred: ${prefersRemote ? 'Yes' : 'No'}, Hybrid Allowed: ${prefersHybrid ? 'Yes' : 'No'}, Onsite Allowed: ${prefersOnSite ? 'Yes' : 'No'}
+        
+        Location/Geographic Constraint Rule:
+        - Check the job description for geographic constraints (e.g. "must reside in Texas", "reside in Canada", "work from Spain").
+        - If the job explicitly restricts candidates to a different state or country than the candidate's preferred location (${searchLocation}), you MUST score it 0 and state the reason as "Location Mismatch: [details]" (e.g. "Location Mismatch: Requires residency in Texas").
+        
+        Experience Match Rule:
+        - Check the job description for required years of experience.
+        - If the job explicitly requires more than 2 years above the candidate's years of experience (from the Experience rule), you MUST score it 0 and state the reason as "Experience Mismatch: Requires X years, candidate has Y years".
+        
+        Since this is a raw community forum post, you MUST identify and extract the following:
+        1. "company": The actual name of the hiring company (do NOT return "Hacker News Community").
+        2. "title": A concise job title (e.g. "Senior Software Engineer" or "Full-Stack Developer").
+        3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
+        
+        Return ONLY a raw JSON object (no markdown):
+        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
+        } else {
+          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
+        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
         Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, 800)}
+        Description: ${job.description.slice(0, descLimit)}
         Experience rule: ${experienceContext}
         
         Candidate Preferred Location: ${searchLocation}
@@ -1872,26 +2224,36 @@ app.post('/api/jobs/evaluate', async (req, res) => {
         
         Return ONLY a raw JSON object (no markdown):
         {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
+        }
+      };
       
-      const txt = await queryCustomLLM(
+      const result = await queryCustomLLMAdaptive(
         llmConfig.endpoint,
         llmConfig.apiKey,
         llmConfig.modelName,
-        evalPrompt,
-        2,
-        (llmConfig.timeout || 30) * 1000
+        promptBuilder,
+        (llmConfig.timeout || 30) * 1000,
+        isHN
       );
+      
+      const txt = result.content;
+      const tier = result.tier;
+      
       const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
       const ev = JSON.parse(cleaned);
       
       const finalJob = {
         ...base,
+        title: (isHN && ev.title && ev.title !== 'Extracted Title') ? ev.title : base.title,
+        company: (isHN && ev.company && ev.company !== 'Extracted Company') ? ev.company : base.company,
+        location: (isHN && ev.location && ev.location !== 'Extracted Location') ? ev.location : base.location,
         matchScore: typeof ev.matchScore === 'number' ? Math.min(100, Math.max(0, ev.matchScore)) : 50,
         matchReason: ev.matchReason || '',
         skillsRequired: ev.skillsRequired || [],
         industry: ev.industry || '',
         experienceLevel: ev.experienceLevel || 'Mid',
         salaryNum: typeof ev.salaryNum === 'number' ? ev.salaryNum : 0,
+        retryTier: tier,
       };
       
       res.json(finalJob);
@@ -1963,13 +2325,15 @@ app.post('/api/jobs/scan', async (req, res) => {
     console.log('[Community Sources] Starting Greenhouse, Lever, Workday, SmartRecruiters, RemoteOK fetch in parallel...');
     const communitySourcesPromise = (async () => {
       await updateCompanyDirectoriesFromRegistry();
-      const [ghRes, lvRes, ashRes, wdRes, srRes, rokRes] = await Promise.allSettled([
+      const [ghRes, lvRes, ashRes, wdRes, srRes, rokRes, remRes, hnRes] = await Promise.allSettled([
         fetchGreenhouseJobs(cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchLeverJobs(cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchAshbyJobs(cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchWorkdayJobs(cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchSmartRecruitersJobs(cachedSmartRecruitersDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         (prefersRemote || prefersHybrid) ? fetchRemoteOKJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+        (prefersRemote || prefersHybrid) ? fetchRemotiveJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+        fetchHackerNewsJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
       ]);
       const raw: RawCommunityJob[] = [
         ...(ghRes.status === 'fulfilled' ? ghRes.value : []),
@@ -1978,6 +2342,8 @@ app.post('/api/jobs/scan', async (req, res) => {
         ...(wdRes.status === 'fulfilled' ? wdRes.value : []),
         ...(srRes.status === 'fulfilled' ? srRes.value : []),
         ...(rokRes.status === 'fulfilled' ? rokRes.value : []),
+        ...(remRes.status === 'fulfilled' ? remRes.value : []),
+        ...(hnRes.status === 'fulfilled' ? hnRes.value : []),
       ];
       // Deduplicate across sources
       const seen = new Set<string>();
@@ -2294,21 +2660,21 @@ app.post('/api/jobs/scan', async (req, res) => {
               .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, '')
               .replace(/<[^>]+>/g, ' ')
               .replace(/\s+/g, ' ')
-              .trim()
-              .slice(0, 1200);
+              .trim();
               
             if (pageText.length < 200) continue;
             
             console.log(`[Local Web Sourcing] Asking local model "${llmConfig.modelName}" to parse page text...`);
-            const evalPrompt = `
+            const promptBuilder = (resumeLimit: number, descLimit: number) => {
+              return `
               Analyze the following job posting text and evaluate it against the candidate resume              Candidate Resume:
               """
-              ${(rawText || '').slice(0, 1500)}
+              ${(rawText || '').slice(0, resumeLimit)}
               """
               
               Job Post Text:
               """
-              ${pageText}
+              ${pageText.slice(0, descLimit)}
               """
  
               Experience matching rule: ${experienceContext}
@@ -2333,15 +2699,19 @@ app.post('/api/jobs/scan', async (req, res) => {
               
               Return ONLY the raw JSON object. Do not include markdown code block wraps.
             `;
+            };
             
-            const modelResText = await queryCustomLLM(
+            const result = await queryCustomLLMAdaptive(
               llmConfig.endpoint,
               llmConfig.apiKey,
               llmConfig.modelName,
-              evalPrompt,
-              2,
-              (llmConfig.timeout || 30) * 1000
+              promptBuilder,
+              (llmConfig.timeout || 30) * 1000,
+              false
             );
+            
+            const modelResText = result.content;
+            const tier = result.tier;
             
             let cleanedJSON = modelResText.trim();
             if (cleanedJSON.startsWith('```')) {
@@ -2353,7 +2723,8 @@ app.post('/api/jobs/scan', async (req, res) => {
               ...parsedJob,
               url: verification.resolvedUrl,
               isUrlVerified: true,
-              salaryNum: typeof parsedJob.salary === 'string' ? (parseInt(parsedJob.salary.replace(/[^0-9]/g, '')) || 0) : (parsedJob.salaryNum || 0)
+              salaryNum: typeof parsedJob.salary === 'string' ? (parseInt(parsedJob.salary.replace(/[^0-9]/g, '')) || 0) : (parsedJob.salaryNum || 0),
+              retryTier: tier
             });
             
           } catch (itemErr: any) {
@@ -2503,6 +2874,17 @@ app.post('/api/llm/proxy', async (req, res) => {
       error: isTimeout ? `LLM Proxy Request Timeout (${proxyTimeoutMs}ms limit exceeded)` : (err.message || 'Failed to connect to the custom LLM endpoint.')
     });
   }
+});
+
+// Endpoint to retrieve LLM health and circuit breaker metrics
+app.get('/api/llm/health', (req, res) => {
+  const successRate = llmHealthState.totalAttempts > 0 
+    ? (llmHealthState.totalSuccesses / llmHealthState.totalAttempts) 
+    : 1.0;
+  res.json({
+    ...llmHealthState,
+    successRate
+  });
 });
 
 // Configure Vite or Static server
