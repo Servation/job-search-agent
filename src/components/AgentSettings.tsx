@@ -281,18 +281,6 @@ export default function AgentSettings({
                   );
                 })}
               </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="w2-only"
-                  checked={profile.prefersW2Only}
-                  onChange={(e) => onChangeProfile({ ...profile, prefersW2Only: e.target.checked })}
-                  className="w-4 h-4 rounded text-indigo-650 bg-slate-900 border-white/10 focus:ring-indigo-650 cursor-pointer accent-indigo-500"
-                />
-                <label htmlFor="w2-only" className="text-xs text-slate-355 cursor-pointer select-none">
-                  W2 agreement only (C2C or direct 1099 contracts disallowed)
-                </label>
-              </div>
             </div>
 
             <div className="pt-4 border-t border-white/5">

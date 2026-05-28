@@ -1913,7 +1913,6 @@ app.post('/api/jobs/scan', async (req, res) => {
       rawText,
       targetRoles = [],
       preferredTypes = ['Full-Time', 'Contract', 'Part-Time'],
-      prefersW2Only = false,
       savedJobs = [], // list of job titles/companies for duplicate prevention
       prefersRemote = true,
       prefersHybrid = true,
@@ -2049,7 +2048,6 @@ app.post('/api/jobs/scan', async (req, res) => {
         - Wants Remote Option: ${prefersRemote ? 'Yes' : 'No'}
         - Wants Hybrid Option: ${prefersHybrid ? 'Yes' : 'No'}
         - Wants On-Site Option: ${prefersOnSite ? 'Yes' : 'No'}
-        - W2 Preferred Only: ${prefersW2Only ? 'Yes, filter out non-W2 or default status if known' : 'No constraint'}
         - Experience Level: ${experienceContext}
   
         Duplicate prevention check: Avoid returning jobs that are identical to any of these existing postings already in the history:
@@ -2421,9 +2419,6 @@ app.post('/api/jobs/scan', async (req, res) => {
       if (preferredTypes.length > 0 && job.type) {
         const matchesType = preferredTypes.some((t: string) => t.toLowerCase() === job.type.toLowerCase());
         if (!matchesType) return false;
-      }
-      if (prefersW2Only && !job.isW2) {
-        return false;
       }
       if (prefersRemote || prefersHybrid) {
         const matchRemote = prefersRemote && job.isRemote;

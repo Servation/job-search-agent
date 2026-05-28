@@ -49,7 +49,6 @@ export interface ResumeProfile {
   targetRoles?: string[];
   preferredLocation?: string;
   preferredTypes: JobTypeType[];
-  prefersW2Only: boolean;
   minMatchScore: number;
   prefersRemote: boolean;
   prefersHybrid: boolean;
