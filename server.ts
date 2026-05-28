@@ -2112,7 +2112,7 @@ app.post('/api/jobs/scan', async (req, res) => {
                 
                 Job Title: ${job.title}
                 Company: ${job.company}
-                Job Description: ${job.description}
+                Job Description: ${(job.description || '').slice(0, 1200)}
 
                 Experience matching rule: ${experienceContext}
                 When computing matchScore, factor in whether the job's required years of experience falls within the candidate's acceptable range (their years ± 2). If the job explicitly requires significantly more experience than the candidate has (more than +2 years above their experience), you MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has Y years" in matchReason.
@@ -2274,7 +2274,7 @@ app.post('/api/jobs/scan', async (req, res) => {
               .replace(/<[^>]+>/g, ' ')
               .replace(/\s+/g, ' ')
               .trim()
-              .slice(0, 4000);
+              .slice(0, 1200);
               
             if (pageText.length < 200) continue;
             
