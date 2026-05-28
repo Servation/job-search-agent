@@ -339,6 +339,14 @@ export default function JobScanner({
   };
 
   const executeScan = async () => {
+    // Check discovered job board capacity at the very beginning
+    const capacityLimit = profileRef.current.maxDiscoveredJobs || 30;
+    if (scannedJobsRef.current.length >= capacityLimit) {
+      setScanMessage(`Scan skipped: Discovered job board is at full capacity (${scannedJobsRef.current.length}/${capacityLimit} slots used). Please dismiss or move some jobs to make space.`);
+      localStorage.setItem('job_agent_last_run_timestamp', String(Date.now()));
+      return;
+    }
+
     if (!profile.rawText) {
       setScanMessage("Please paste or parse a resume first from the profile section!");
       return;
