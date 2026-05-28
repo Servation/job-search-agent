@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Briefcase, 
   Sparkles, 
@@ -22,7 +22,10 @@ import {
   FileSpreadsheet,
   Bookmark,
   Trash2,
-  Info
+  Info,
+  Play,
+  Pause,
+  Square
 } from 'lucide-react';
 import { Job, JobTypeType, JobStatusType, ResumeProfile, LLMConfig } from '../types';
 import { generateDynamicFeed } from '../data/jobFeed';
@@ -149,6 +152,15 @@ export default function JobScanner({
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
+  const [scanStatus, setScanStatus] = useState<'idle' | 'running' | 'pausing' | 'paused'>('idle');
+  const scanStatusRef = useRef<'idle' | 'running' | 'pausing' | 'paused'>('idle');
+  const pausePromiseResolveRef = useRef<(() => void) | null>(null);
+
+  const updateScanStatus = (status: 'idle' | 'running' | 'pausing' | 'paused') => {
+    setScanStatus(status);
+    scanStatusRef.current = status;
+  };
+
   useEffect(() => {
     if (logsContainerRef.current) {
       logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
@@ -253,6 +265,42 @@ export default function JobScanner({
     return list[Math.floor(Math.random() * list.length)];
   };
 
+  const scannerLog = useCallback((msg: string, quoteCategory?: keyof typeof RALPH_QUOTES) => {
+    let finalMsg = msg;
+    if (ralphMode && quoteCategory) {
+      finalMsg = `[Ralph: "${getRandomRalphQuote(quoteCategory)}"] ${msg}`;
+    }
+    addAiLog(finalMsg);
+  }, [ralphMode, addAiLog]);
+
+  const handlePause = () => {
+    if (scanStatusRef.current === 'running') {
+      updateScanStatus('pausing');
+      scannerLog("Pause requested. Completing active job evaluation before pausing...", "fetch");
+    }
+  };
+
+  const handleResume = () => {
+    if (scanStatusRef.current === 'paused') {
+      updateScanStatus('running');
+      scannerLog("Resuming sequential verification scan...", "fetch");
+      if (pausePromiseResolveRef.current) {
+        pausePromiseResolveRef.current();
+        pausePromiseResolveRef.current = null;
+      }
+    }
+  };
+
+  const handleStop = () => {
+    scannerLog("Stop requested. Halting scan...", "filterSkip");
+    updateScanStatus('idle');
+    setIsAiRunning(false);
+    if (pausePromiseResolveRef.current) {
+      pausePromiseResolveRef.current();
+      pausePromiseResolveRef.current = null;
+    }
+  };
+
   // Manual fast add of custom job listing structure (user input testing)
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualForm, setManualForm] = useState({
@@ -297,18 +345,13 @@ export default function JobScanner({
     }
 
     setIsAiRunning(true);
+    updateScanStatus('running');
     setScanMessage(null);
     setExpandedJobId(null);
     onScanStarted();
     clearAiLogs();
 
-    const log = (msg: string, quoteCategory?: keyof typeof RALPH_QUOTES) => {
-      let finalMsg = msg;
-      if (ralphMode && quoteCategory) {
-        finalMsg = `[Ralph: "${getRandomRalphQuote(quoteCategory)}"] ${msg}`;
-      }
-      addAiLog(finalMsg);
-    };
+    const log = scannerLog;
 
     log("JobScanner: Initiated sequential verification loop.", "fetch");
     if (lastRunTime) {
@@ -438,6 +481,23 @@ export default function JobScanner({
       };
 
       for (let i = 0; i < rawJobs.length; i++) {
+        // Check for pause/stop request
+        if (scanStatusRef.current === 'pausing') {
+          log("Stopping event triggered: sequential scan paused successfully.", "complete");
+          updateScanStatus('paused');
+          
+          await new Promise<void>(resolve => {
+            pausePromiseResolveRef.current = resolve;
+          });
+          
+          if (scanStatusRef.current === 'idle') {
+            break;
+          }
+          log("Scan resumed by user.", "fetch");
+        } else if (scanStatusRef.current === 'idle') {
+          break;
+        }
+
         const rawJob = rawJobs[i];
         const jobNo = extractJobNumber(rawJob.url || '');
         const jobNoStr = jobNo ? ` (ID: ${jobNo})` : '';
@@ -585,6 +645,7 @@ export default function JobScanner({
       log(`Sequential scan failed: ${err.message}.`, "filterSkip");
     } finally {
       setIsAiRunning(false);
+      updateScanStatus('idle');
     }
   };
 
@@ -741,26 +802,56 @@ export default function JobScanner({
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={executeScan}
-            disabled={isAiRunning || !profile.rawText}
-            className="px-6 py-2.5 rounded-xl bg-indigo-650 hover:bg-indigo-700 text-white font-semibold text-sm transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          >
-            {isAiRunning ? (
-              <>
-                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Scanning Jobs...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-                Launch Match Scan
-              </>
-            )}
-          </button>
+          {scanStatus === 'idle' ? (
+            <button
+              onClick={executeScan}
+              disabled={!profile.rawText}
+              className="px-6 py-2.5 rounded-xl bg-indigo-650 hover:bg-indigo-700 text-white font-semibold text-sm transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            >
+              <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
+              Launch Match Scan
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              {scanStatus === 'running' && (
+                <button
+                  onClick={handlePause}
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-semibold text-sm transition-all shadow-md flex items-center gap-2 shrink-0"
+                >
+                  <Pause className="w-4 h-4" />
+                  Pause Scan
+                </button>
+              )}
+              {scanStatus === 'pausing' && (
+                <button
+                  disabled
+                  className="px-5 py-2.5 rounded-xl bg-amber-750/50 text-white/70 font-semibold text-sm transition-all flex items-center gap-2 cursor-not-allowed shrink-0"
+                >
+                  <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Pausing Scan...
+                </button>
+              )}
+              {scanStatus === 'paused' && (
+                <button
+                  onClick={handleResume}
+                  className="px-5 py-2.5 rounded-xl bg-emerald-655 hover:bg-emerald-700 text-white font-semibold text-sm transition-all shadow-md flex items-center gap-2 shrink-0"
+                >
+                  <Play className="w-4 h-4" />
+                  Resume Scan
+                </button>
+              )}
+              <button
+                onClick={handleStop}
+                className="px-5 py-2.5 rounded-xl bg-red-650 hover:bg-red-700 text-white font-semibold text-sm transition-all shadow-md flex items-center gap-2 shrink-0"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                Stop Scan
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -776,13 +867,27 @@ export default function JobScanner({
           <div className="space-y-1">
             <span className="text-[10px] tracking-wider uppercase text-slate-400 font-bold block">AI Agent Core Engine</span>
             <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full ${isAiRunning ? "bg-indigo-500 animate-ping" : secondsRemaining !== null ? "bg-indigo-400 animate-pulse" : "bg-emerald-500"}`} />
+              <span className={`w-3 h-3 rounded-full ${
+                scanStatus === 'running' ? "bg-indigo-500 animate-ping" :
+                scanStatus === 'pausing' ? "bg-amber-500 animate-pulse" :
+                scanStatus === 'paused' ? "bg-amber-500" :
+                secondsRemaining !== null ? "bg-indigo-400 animate-pulse" : 
+                "bg-emerald-500"
+              }`} />
               <span className="text-sm font-bold text-slate-100 uppercase tracking-tight">
-                {isAiRunning ? "Executing Task..." : secondsRemaining !== null ? "Auto-Scan Active" : "Instance Idle"}
+                {scanStatus === 'running' ? "Executing Task..." :
+                 scanStatus === 'pausing' ? "Pending Pause..." :
+                 scanStatus === 'paused' ? "Scan Paused" :
+                 secondsRemaining !== null ? "Auto-Scan Active" : 
+                 "Instance Idle"}
               </span>
             </div>
-            {isAiRunning ? (
+            {scanStatus === 'running' ? (
               <span className="text-[10px] block text-indigo-400 font-medium leading-none animate-pulse">Running match iterations...</span>
+            ) : scanStatus === 'pausing' ? (
+              <span className="text-[10px] block text-amber-400 font-medium leading-none animate-pulse">Waiting for active LLM request...</span>
+            ) : scanStatus === 'paused' ? (
+              <span className="text-[10px] block text-amber-400 font-medium leading-none">Scan suspended. Click Resume to continue.</span>
             ) : secondsRemaining !== null ? (
               <span className="text-[10px] block text-indigo-400 font-medium font-mono leading-none">
                 Next scan in: {formatCountdown(secondsRemaining)}
@@ -816,7 +921,12 @@ export default function JobScanner({
       <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 shadow-inner" id="ai-telemetering-logs">
         <div className="text-slate-400 border-b border-white/5 pb-2 mb-3.5 font-bold flex items-center justify-between text-xs">
           <div className="flex items-center gap-2">
-            <div className={`w-2.5 h-2.5 rounded-full ${isAiRunning ? "bg-indigo-500 animate-ping" : "bg-emerald-500"}`} />
+            <div className={`w-2.5 h-2.5 rounded-full ${
+              scanStatus === 'running' ? "bg-indigo-500 animate-ping" : 
+              scanStatus === 'pausing' ? "bg-amber-500 animate-pulse" :
+              scanStatus === 'paused' ? "bg-amber-500" :
+              "bg-emerald-500"
+            }`} />
             <span className="tracking-wider uppercase font-display">EVENT LOGS</span>
           </div>
           <div className="flex items-center gap-2 animate-fade-in font-sans">
