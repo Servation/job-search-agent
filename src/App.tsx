@@ -179,8 +179,8 @@ export default function App() {
     return [];
   });
 
-  const [dismissedJobKeys, setDismissedJobKeys] = useState<string[]>(() => {
-    const cached = localStorage.getItem('job_agent_dismissed_job_keys');
+  const [dismissedJobs, setDismissedJobs] = useState<Job[]>(() => {
+    const cached = localStorage.getItem('job_agent_dismissed_jobs');
     if (cached) {
       try { return JSON.parse(cached); } catch (e) { /* ignore */ }
     }
@@ -188,17 +188,44 @@ export default function App() {
   });
 
   useEffect(() => {
+    localStorage.setItem('job_agent_dismissed_jobs', JSON.stringify(dismissedJobs));
+  }, [dismissedJobs]);
+
+  const [dismissedJobKeys, setDismissedJobKeys] = useState<string[]>(() => {
+    const cached = localStorage.getItem('job_agent_dismissed_job_keys');
+    let legacy: string[] = [];
+    if (cached) {
+      try { legacy = JSON.parse(cached); } catch (e) { /* ignore */ }
+    }
+    const computed = dismissedJobs.map(j => `${j.company.toLowerCase().trim()}|${j.title.toLowerCase().trim()}`);
+    return Array.from(new Set([...legacy, ...computed]));
+  });
+
+  useEffect(() => {
     localStorage.setItem('job_agent_dismissed_job_keys', JSON.stringify(dismissedJobKeys));
   }, [dismissedJobKeys]);
 
-  const addDismissedJobKey = (company: string, title: string) => {
-    const key = `${company.toLowerCase().trim()}|${title.toLowerCase().trim()}`;
+  const handleDismissJob = (job: Job) => {
+    setDismissedJobs((prev) => {
+      if (!prev.some(j => j.id === job.id || (j.title.toLowerCase() === job.title.toLowerCase() && j.company.toLowerCase() === job.company.toLowerCase()))) {
+        return [job, ...prev];
+      }
+      return prev;
+    });
+
+    const key = `${job.company.toLowerCase().trim()}|${job.title.toLowerCase().trim()}`;
     setDismissedJobKeys((prev) => {
       if (!prev.includes(key)) {
         return [...prev, key];
       }
       return prev;
     });
+  };
+
+  const handleUndismissJob = (job: Job) => {
+    setDismissedJobs((prev) => prev.filter(j => j.id !== job.id && (j.title.toLowerCase() !== job.title.toLowerCase() || j.company.toLowerCase() !== job.company.toLowerCase())));
+    const key = `${job.company.toLowerCase().trim()}|${job.title.toLowerCase().trim()}`;
+    setDismissedJobKeys((prev) => prev.filter(k => k !== key));
   };
 
   // Client-facing AI Real-time Event System
@@ -312,7 +339,7 @@ export default function App() {
   const handleRemoveFromWatchlist = (id: string) => {
     const job = watchlist.find((j) => j.id === id);
     if (job) {
-      addDismissedJobKey(job.company, job.title);
+      handleDismissJob(job);
       addAiLog(`User: Removed job "${job.title}" at ${job.company} from watchlist (added to dismissed blocklist).`);
     }
     setWatchlist((prev) => prev.filter((j) => j.id !== id));
@@ -331,7 +358,7 @@ export default function App() {
   const handleRemoveJob = (id: string) => {
     const job = savedJobs.find((j) => j.id === id);
     if (job) {
-      addDismissedJobKey(job.company, job.title);
+      handleDismissJob(job);
       addAiLog(`User: Removed job "${job.title}" at ${job.company} from board (added to dismissed blocklist).`);
     }
     setSavedJobs((prev) => prev.filter((j) => j.id !== id));
@@ -528,8 +555,10 @@ export default function App() {
               llmConfig={llmConfig}
               savedJobs={savedJobs}
               watchlist={watchlist}
+              dismissedJobs={dismissedJobs}
               dismissedJobKeys={dismissedJobKeys}
-              onDismissJob={addDismissedJobKey}
+              onDismissJob={handleDismissJob}
+              onUndismissJob={handleUndismissJob}
               onAddJobs={handleAddJobs}
               onAddToWatchlist={handleAddToWatchlist}
               onRemoveFromWatchlist={handleRemoveFromWatchlist}

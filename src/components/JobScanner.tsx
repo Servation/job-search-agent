@@ -25,7 +25,9 @@ import {
   Info,
   Play,
   Pause,
-  Square
+  Square,
+  Undo,
+  History
 } from 'lucide-react';
 import { Job, JobTypeType, JobStatusType, ResumeProfile, LLMConfig } from '../types';
 import { generateDynamicFeed } from '../data/jobFeed';
@@ -79,8 +81,10 @@ interface JobScannerProps {
   llmConfig: LLMConfig;
   savedJobs: Job[];
   watchlist: Job[];
+  dismissedJobs?: Job[];
   dismissedJobKeys: string[];
-  onDismissJob: (company: string, title: string) => void;
+  onDismissJob: (job: Job) => void;
+  onUndismissJob: (job: Job) => void;
   onAddJobs: (newJobs: Job[]) => void;
   onAddToWatchlist: (newJobs: Job[]) => void;
   onRemoveFromWatchlist: (id: string) => void;
@@ -103,8 +107,10 @@ export default function JobScanner({
   llmConfig,
   savedJobs,
   watchlist,
+  dismissedJobs = [],
   dismissedJobKeys,
   onDismissJob,
+  onUndismissJob,
   onAddJobs,
   onAddToWatchlist,
   onRemoveFromWatchlist,
@@ -134,6 +140,9 @@ export default function JobScanner({
   useEffect(() => {
     localStorage.setItem('job_agent_scanned_jobs', JSON.stringify(scannedJobs));
   }, [scannedJobs]);
+
+  const [preventedDuplicates, setPreventedDuplicates] = useState<any[]>([]);
+  const [activeScannerTab, setActiveScannerTab] = useState<'discovered' | 'duplicates' | 'dismissed'>('discovered');
 
   const logsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -441,6 +450,7 @@ export default function JobScanner({
 
       const fullyScoredJobs: Job[] = [];
       let duplicatesSkipped = 0;
+      setPreventedDuplicates([]);
 
       const getActiveJobsDeduplicated = () => {
         const combined = [...scannedJobsRef.current, ...fullyScoredJobs];
@@ -534,6 +544,22 @@ export default function JobScanner({
             "filterSkip"
           );
           duplicatesSkipped++;
+          setPreventedDuplicates(prev => {
+            const exists = prev.some(d => d.title.toLowerCase().trim() === rawJob.title.toLowerCase().trim() && d.company.toLowerCase().trim() === rawJob.company.toLowerCase().trim());
+            if (!exists) {
+              return [...prev, {
+                id: `dup-${Date.now()}-${i}`,
+                title: rawJob.title,
+                company: rawJob.company,
+                location: rawJob.location || 'Unknown',
+                url: rawJob.url || '',
+                source: rawJob.source || 'community',
+                reason: dupCheck.reason,
+                scannedAt: new Date().toISOString()
+              }];
+            }
+            return prev;
+          });
           continue;
         }
 
@@ -599,7 +625,7 @@ export default function JobScanner({
           
           if (isBelowThreshold) {
             log(
-              `[Job ${i + 1}/${rawJobs.length}] Skipped: Match Score ${scoredJob.matchScore}% is below minimum threshold ${minScore}%${tierText}. Reason: ${scoredJob.matchReason || 'Low match score.'}`,
+              `[Job ${i + 1}/${rawJobs.length}] Skipped: "${scoredJob.title}" at ${scoredJob.company} — Match Score ${scoredJob.matchScore}% is below minimum threshold ${minScore}%${tierText}. Reason: ${scoredJob.matchReason || 'Low match score.'}`,
               "scoreLow"
             );
           } else {
@@ -717,9 +743,21 @@ export default function JobScanner({
   const handleDismissJob = (id: string) => {
     const jobToDismiss = scannedJobs.find(j => j.id === id);
     if (jobToDismiss) {
-      onDismissJob(jobToDismiss.company, jobToDismiss.title);
+      onDismissJob(jobToDismiss);
+      scannerLog(`Dismissed application: "${jobToDismiss.title}" at ${jobToDismiss.company}. Saved to Dismissed Postings.`, "complete");
     }
     setScannedJobs(prev => prev.filter(j => j.id !== id));
+  };
+
+  const handleUndismissJob = (job: Job) => {
+    onUndismissJob(job);
+    setScannedJobs(prev => {
+      if (!prev.some(j => j.id === job.id)) {
+        return [job, ...prev];
+      }
+      return prev;
+    });
+    scannerLog(`Undismissed job: "${job.title}" at ${job.company} restored to Discovered board.`, "complete");
   };
 
   // Background timer for Auto-Scanning
@@ -1188,224 +1226,378 @@ export default function JobScanner({
               </div>
             ))}
           </div>
+          {/* 🧭 Tabbed Scanner Boards Dashboard */}
+      <div className="space-y-4" id="scanned-matches-tabs-container">
+        {/* Tab selection header */}
+        <div className="flex border-b border-white/5 pb-2 mb-4 gap-4">
+          <button
+            onClick={() => setActiveScannerTab('discovered')}
+            className={`pb-2 px-1 text-sm font-semibold tracking-tight transition-all relative cursor-pointer ${
+              activeScannerTab === 'discovered' 
+                ? 'text-white font-bold' 
+                : 'text-slate-450 hover:text-slate-300'
+            }`}
+          >
+            Discovered Postings ({scannedJobs.length})
+            {activeScannerTab === 'discovered' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+            )}
+          </button>
+          
+          <button
+            onClick={() => setActiveScannerTab('duplicates')}
+            className={`pb-2 px-1 text-sm font-semibold tracking-tight transition-all relative cursor-pointer ${
+              activeScannerTab === 'duplicates' 
+                ? 'text-white font-bold' 
+                : 'text-slate-450 hover:text-slate-300'
+            }`}
+          >
+            Duplicates Prevented ({preventedDuplicates.length})
+            {activeScannerTab === 'duplicates' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveScannerTab('dismissed')}
+            className={`pb-2 px-1 text-sm font-semibold tracking-tight transition-all relative cursor-pointer ${
+              activeScannerTab === 'dismissed' 
+                ? 'text-white font-bold' 
+                : 'text-slate-450 hover:text-slate-300'
+            }`}
+          >
+            Dismissed Postings ({dismissedJobs.length})
+            {activeScannerTab === 'dismissed' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+            )}
+          </button>
         </div>
-      )}
 
-      {/* Scanning Match Results display cards */}
-      {scannedJobs.length > 0 && (
-        <div className="space-y-4" id="scanned-matches-list">
-          <div className="flex justify-between items-center px-1">
-            <span className="text-xs uppercase font-bold tracking-wider text-indigo-400 font-display">Discovered Postings</span>
-            <span className="text-xs text-slate-400 font-mono">
-              {scannedJobs.length} / {profile.maxDiscoveredJobs || 30} slots used
-            </span>
-          </div>
+        {/* Tab Content 1: Discovered Postings */}
+        {activeScannerTab === 'discovered' && (
+          <div className="space-y-4" id="scanned-matches-list">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-xs uppercase font-bold tracking-wider text-indigo-400 font-display">Discovered Postings</span>
+              <span className="text-xs text-slate-400 font-mono">
+                {scannedJobs.length} / {profile.maxDiscoveredJobs || 30} slots used
+              </span>
+            </div>
 
-          <div className="grid grid-cols-1 gap-4">
-            {[...scannedJobs]
-              .sort((a, b) => {
-                const dateA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
-                const dateB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
-                return dateA - dateB;
-              })
-              .map((job) => {
-              const isExpanded = expandedJobId === job.id;
-              
-              return (
-                <div
-                  key={job.id}
-                  className={`sleek-card rounded-2xl transition-all overflow-hidden border border-white/10 ${
-                    job.isDuplicate 
-                      ? 'opacity-65' 
-                      : 'shadow-md hover:border-indigo-500/25 shadow-black/10'
-                  }`}
-                >
-                  <div className="p-5 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                    <div className="space-y-2 flex-grow">
-                      {/* Duplicate banner trigger */}
-                      {job.isDuplicate && (
-                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-950/45 border border-amber-500/15">
-                          <AlertTriangle className="w-3.5 h-3.5" /> Already Applied / Saved (Duplicate Prevented)
-                        </span>
-                      )}
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-bold text-white font-display tracking-tight">
-                          {job.title}
-                        </h3>
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getMatchColor(job.matchScore)} shrink-0`}>
-                          {job.matchScore}% Match
-                        </span>
-                        {job.isUrlVerified ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 shrink-0" title="This link has been validated as an active direct application page.">
-                            <Check className="w-3.5 h-3.5 text-emerald-450" /> Link Verified
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950/45 border border-amber-500/20 text-amber-400 shrink-0" title="This link was not automatically validated as a direct application page. Exercise caution.">
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-450" /> Link Unverified
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-400">
-                        <span className="text-slate-200">{job.company}</span>
-                        <span className="flex items-center gap-1 font-normal text-slate-500">
-                          <MapPin className="w-3.5 h-3.5 stroke-[1.5]" /> {job.location}
-                        </span>
-                        {job.salary && (
-                          <span className="flex items-center gap-1 font-normal text-slate-500">
-                            <DollarSign className="w-3.5 h-3.5 stroke-[1.5]" /> {job.salary}
-                          </span>
-                        )}
-                        <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-white/5 text-slate-300 text-[10px]">
-                          {job.type} {job.isW2 && '· W2'}
-                        </span>
-                        {job.sourceTag && (
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${
-                            job.sourceTag === 'hackernews' ? 'bg-orange-950/45 border-orange-500/20 text-orange-400' :
-                            job.sourceTag === 'remotive' ? 'bg-purple-950/45 border-purple-500/20 text-purple-400' :
-                            job.sourceTag === 'remoteok' ? 'bg-pink-950/45 border-pink-500/20 text-pink-400' :
-                            job.sourceTag === 'greenhouse' ? 'bg-emerald-950/45 border-emerald-500/20 text-emerald-400' :
-                            job.sourceTag === 'lever' ? 'bg-teal-950/45 border-teal-500/20 text-teal-400' :
-                            job.sourceTag === 'ashby' ? 'bg-cyan-950/45 border-cyan-500/20 text-cyan-400' :
-                            job.sourceTag === 'workday' ? 'bg-blue-950/45 border-blue-500/20 text-blue-450' :
-                            job.sourceTag === 'smartrecruiters' ? 'bg-violet-950/45 border-violet-500/20 text-violet-400' :
-                            'bg-slate-900 border-white/5 text-slate-300'
-                          }`}>
-                            {job.sourceTag === 'hackernews' ? 'Hacker News' : job.sourceTag}
-                          </span>
-                        )}
-                        {job.retryTier !== undefined && job.retryTier >= 1 && (
-                          <span 
-                            className="px-2 py-0.5 rounded-md bg-amber-950/40 border border-amber-500/20 text-amber-400 text-[10px] font-semibold flex items-center gap-1 cursor-help"
-                            title={`This job was evaluated with reduced context (Tier ${job.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
-                          >
-                            <span>⚠️</span> Reduced Context
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-sm text-slate-350 leading-relaxed font-sans line-clamp-2">
-                        {job.description}
-                      </p>
-
-                      {job.skillsRequired && (
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {job.skillsRequired.map((s, i) => (
-                            <span key={i} className="text-[10px] px-2 py-0.5 bg-slate-900/60 text-slate-400 rounded border border-white/5 font-mono">
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 shrink-0 text-right">
-                      <span className="text-[10px] text-slate-500 font-medium font-mono" title="Original posting date">
-                        Posted: {formatTimestamp(job.postedAt)}
-                      </span>
-                      {job.scannedAt && (
-                        <span className="text-[10px] text-indigo-400 font-semibold font-mono" title="Time when this agent discovered the job">
-                          Found: {new Date(job.scannedAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
-                        </span>
-                      )}
-                      
-                      <button
-                        onClick={() => handleDismissJob(job.id)}
-                        className="p-1.5 rounded-lg hover:bg-rose-950/30 text-slate-550 hover:text-rose-450 transition-colors mt-1"
-                        title="Dismiss Job Listing"
+            {scannedJobs.length === 0 ? (
+              <div className="text-center py-12 sleek-card rounded-2xl border border-dashed border-white/5 text-slate-500 font-medium">
+                No discovered postings yet. Launch a scan to find opportunities.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {[...scannedJobs]
+                  .sort((a, b) => {
+                    const dateA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
+                    const dateB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+                    return dateA - dateB;
+                  })
+                  .map((job) => {
+                    const isExpanded = expandedJobId === job.id;
+                    
+                    return (
+                      <div
+                        key={job.id}
+                        className={`sleek-card rounded-2xl transition-all overflow-hidden border border-white/10 ${
+                          job.isDuplicate 
+                            ? 'opacity-65' 
+                            : 'shadow-md hover:border-indigo-500/25 shadow-black/10'
+                        }`}
                       >
-                        <Trash2 className="w-4.5 h-4.5" />
-                      </button>
-                    </div>
-                  </div>
+                        <div className="p-5 flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                          <div className="space-y-2 flex-grow">
+                            {/* Duplicate banner trigger */}
+                            {job.isDuplicate && (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider text-amber-300 bg-amber-950/45 border border-amber-500/15">
+                                <AlertTriangle className="w-3.5 h-3.5" /> Already Applied / Saved (Duplicate Prevented)
+                              </span>
+                            )}
 
-                  {/* Expanded Matching Details & Actions */}
-                  {isExpanded && (
-                    <div className="px-5 pb-5 border-t border-white/5 pt-4 bg-slate-900/30 space-y-4">
-                      {job.description && (
-                        <div className="p-3.5 bg-slate-900/80 border border-white/10 rounded-xl space-y-1.5">
-                          <span className="text-[10px] uppercase font-bold text-indigo-400 flex items-center gap-1.5 font-display">
-                            <Briefcase className="w-3.5 h-3.5 text-indigo-400" /> Full Position Description
-                          </span>
-                          <p className="text-xs text-slate-300 leading-relaxed font-sans whitespace-pre-wrap">{job.description}</p>
-                        </div>
-                      )}
-
-                      {job.matchReason && (
-                        <div className="p-3.5 bg-slate-900/80 border border-white/10 rounded-xl space-y-1">
-                          <span className="text-[10px] uppercase font-bold text-slate-450 flex items-center gap-1.5 font-display">
-                            <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Grounded Agent Score Matching Reason
-                          </span>
-                          <p className="text-xs text-slate-300 leading-normal font-sans">{job.matchReason}</p>
-                        </div>
-                      )}
-
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                        <a
-                          href={job.url}
-                          target="_blank"
-                          referrerPolicy="no-referrer"
-                          className="text-xs font-semibold text-slate-200 border border-white/10 bg-slate-900/80 hover:bg-slate-850 px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-all w-full sm:w-auto justify-center"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> Read Posting Link
-                        </a>
-
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                          {job.isDuplicate ? (
-                            <button
-                              disabled
-                              className="px-5 py-2.5 rounded-xl border border-white/5 bg-slate-800/40 text-slate-550 font-medium text-xs w-full sm:w-auto flex items-center justify-center gap-1.5 cursor-not-allowed"
-                            >
-                              <UserCheck className="w-4 h-4" /> Locked Duplicate (Already Saved)
-                            </button>
-                          ) : (
-                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
-                              <input
-                                type="text"
-                                value={customNote}
-                                onChange={(e) => setCustomNote(e.target.value)}
-                                placeholder="Add custom notes..."
-                                className="px-3 py-2 text-xs rounded-xl border border-white/10 bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-white placeholder-slate-650 flex-grow"
-                              />
-                              <button
-                                onClick={() => handleSaveToWatchlist(job)}
-                                className="px-4 py-2.5 rounded-xl border border-indigo-500/20 text-indigo-400 font-semibold text-xs hover:bg-indigo-950/20 transition-all shrink-0 flex items-center justify-center gap-1.5"
-                              >
-                                <Bookmark className="w-3.5 h-3.5" /> Save to Watchlist
-                              </button>
-                              <button
-                                onClick={() => handleSaveToTracker(job)}
-                                className="px-5 py-2.5 rounded-xl bg-indigo-650 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-500/10 shrink-0 flex items-center justify-center gap-1.5"
-                              >
-                                <FileCheck className="w-4 h-4" /> Log Applied Submission
-                              </button>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-base font-bold text-white font-display tracking-tight">
+                                {job.title}
+                              </h3>
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getMatchColor(job.matchScore)} shrink-0`}>
+                                {job.matchScore}% Match
+                              </span>
+                              {job.isUrlVerified ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 shrink-0" title="This link has been validated as an active direct application page.">
+                                  <Check className="w-3.5 h-3.5 text-emerald-450" /> Link Verified
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950/45 border border-amber-500/20 text-amber-400 shrink-0" title="This link was not automatically validated as a direct application page. Exercise caution.">
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-450" /> Link Unverified
+                                </span>
+                              )}
                             </div>
-                          )}
+
+                            <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-slate-400">
+                              <span className="text-slate-200">{job.company}</span>
+                              <span className="flex items-center gap-1 font-normal text-slate-500">
+                                <MapPin className="w-3.5 h-3.5 stroke-[1.5]" /> {job.location}
+                              </span>
+                              {job.salary && (
+                                <span className="flex items-center gap-1 font-normal text-slate-500">
+                                  <DollarSign className="w-3.5 h-3.5 stroke-[1.5]" /> {job.salary}
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-white/5 text-slate-300 text-[10px]">
+                                {job.type} {job.isW2 && '· W2'}
+                              </span>
+                              {job.sourceTag && (
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border uppercase tracking-wider ${
+                                  job.sourceTag === 'hackernews' ? 'bg-orange-950/45 border-orange-500/20 text-orange-400' :
+                                  job.sourceTag === 'remotive' ? 'bg-purple-950/45 border-purple-500/20 text-purple-400' :
+                                  job.sourceTag === 'remoteok' ? 'bg-pink-950/45 border-pink-500/20 text-pink-400' :
+                                  job.sourceTag === 'greenhouse' ? 'bg-emerald-950/45 border-emerald-500/20 text-emerald-400' :
+                                  job.sourceTag === 'lever' ? 'bg-teal-950/45 border-teal-500/20 text-teal-400' :
+                                  job.sourceTag === 'ashby' ? 'bg-cyan-950/45 border-cyan-500/20 text-cyan-400' :
+                                  job.sourceTag === 'workday' ? 'bg-blue-950/45 border-blue-500/20 text-blue-455' :
+                                  job.sourceTag === 'smartrecruiters' ? 'bg-violet-950/45 border-violet-500/20 text-violet-400' :
+                                  'bg-slate-900 border-white/5 text-slate-300'
+                                }`}>
+                                  {job.sourceTag === 'hackernews' ? 'Hacker News' : job.sourceTag}
+                                </span>
+                              )}
+                              {job.retryTier !== undefined && job.retryTier >= 1 && (
+                                <span 
+                                  className="px-2 py-0.5 rounded-md bg-amber-950/40 border border-amber-500/20 text-amber-400 text-[10px] font-semibold flex items-center gap-1 cursor-help"
+                                  title={`This job was evaluated with reduced context (Tier ${job.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
+                                >
+                                  <span>⚠️</span> Reduced Context
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="text-sm text-slate-350 leading-relaxed font-sans line-clamp-2">
+                              {job.description}
+                            </p>
+
+                            {job.skillsRequired && (
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                {job.skillsRequired.map((s, i) => (
+                                  <span key={i} className="text-[10px] px-2 py-0.5 bg-slate-900/60 text-slate-400 rounded border border-white/5 font-mono">
+                                    {s}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-2 shrink-0 text-right">
+                            <span className="text-[10px] text-slate-500 font-medium font-mono" title="Original posting date">
+                              Posted: {formatTimestamp(job.postedAt)}
+                            </span>
+                            {job.scannedAt && (
+                              <span className="text-[10px] text-indigo-400 font-semibold font-mono" title="Time when this agent discovered the job">
+                                Found: {new Date(job.scannedAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
+                              </span>
+                            )}
+                            
+                            <button
+                              onClick={() => handleDismissJob(job.id)}
+                              className="p-1.5 rounded-lg hover:bg-rose-950/30 text-slate-550 hover:text-rose-450 transition-colors mt-1 cursor-pointer"
+                              title="Dismiss Job Listing"
+                            >
+                              <Trash2 className="w-4.5 h-4.5" />
+                            </button>
+                          </div>
                         </div>
+
+                        {/* Expanded Matching Details & Actions */}
+                        {isExpanded && (
+                          <div className="px-5 pb-5 border-t border-white/5 pt-4 bg-slate-900/30 space-y-4">
+                            {job.description && (
+                              <div className="p-3.5 bg-slate-900/80 border border-white/10 rounded-xl space-y-1.5">
+                                <span className="text-[10px] uppercase font-bold text-indigo-400 flex items-center gap-1.5 font-display">
+                                  <Briefcase className="w-3.5 h-3.5 text-indigo-400" /> Full Position Description
+                                </span>
+                                <p className="text-xs text-slate-300 leading-relaxed font-sans whitespace-pre-wrap">{job.description}</p>
+                              </div>
+                            )}
+
+                            {job.matchReason && (
+                              <div className="p-3.5 bg-slate-900/80 border border-white/10 rounded-xl space-y-1">
+                                <span className="text-[10px] uppercase font-bold text-slate-455 flex items-center gap-1.5 font-display">
+                                  <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Grounded Agent Score Matching Reason
+                                </span>
+                                <p className="text-xs text-slate-300 leading-normal font-sans">{job.matchReason}</p>
+                              </div>
+                            )}
+
+                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                              <a
+                                href={job.url}
+                                target="_blank"
+                                referrerPolicy="no-referrer"
+                                className="text-xs font-semibold text-slate-200 border border-white/10 bg-slate-900/80 hover:bg-slate-850 px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-all w-full sm:w-auto justify-center"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" /> Read Posting Link
+                              </a>
+
+                              <div className="flex items-center gap-2 w-full sm:w-auto">
+                                {job.isDuplicate ? (
+                                  <button
+                                    disabled
+                                    className="px-5 py-2.5 rounded-xl border border-white/5 bg-slate-800/40 text-slate-550 font-medium text-xs w-full sm:w-auto flex items-center justify-center gap-1.5 cursor-not-allowed"
+                                  >
+                                    <UserCheck className="w-4 h-4" /> Locked Duplicate (Already Saved)
+                                  </button>
+                                ) : (
+                                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full">
+                                    <input
+                                      type="text"
+                                      value={customNote}
+                                      onChange={(e) => setCustomNote(e.target.value)}
+                                      placeholder="Add custom notes..."
+                                      className="px-3 py-2 text-xs rounded-xl border border-white/10 bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-white placeholder-slate-650 flex-grow"
+                                    />
+                                    <button
+                                      onClick={() => handleSaveToWatchlist(job)}
+                                      className="px-4 py-2.5 rounded-xl border border-indigo-500/20 text-indigo-400 font-semibold text-xs hover:bg-indigo-950/20 transition-all shrink-0 flex items-center justify-center gap-1.5"
+                                    >
+                                      <Bookmark className="w-3.5 h-3.5" /> Save to Watchlist
+                                    </button>
+                                    <button
+                                      onClick={() => handleSaveToTracker(job)}
+                                      className="px-5 py-2.5 rounded-xl bg-indigo-650 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-md shadow-indigo-500/10 shrink-0 flex items-center justify-center gap-1.5"
+                                    >
+                                      <FileCheck className="w-4 h-4" /> Log Applied Submission
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Bottom Expand Toggle Bar */}
+                        <button
+                          onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
+                          className="w-full py-2.5 bg-slate-900/20 hover:bg-slate-900/60 text-slate-400 hover:text-slate-200 text-[11px] font-bold border-t border-white/5 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          {isExpanded ? (
+                            <>
+                              <ChevronUp className="w-4 h-4" /> Collapse Match Details
+                            </>
+                          ) : (
+                            <>
+                              <ChevronDown className="w-4 h-4" /> Expand Details & Match Reasoning
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab Content 2: Duplicates Prevented */}
+        {activeScannerTab === 'duplicates' && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-450 font-display flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-indigo-400" /> Prevented Duplicates Audit History ({preventedDuplicates.length} Total Skipped)
+              </span>
+              <span className="text-xs text-slate-500 font-mono">Excluded before LLM to save token limits</span>
+            </div>
+
+            {preventedDuplicates.length === 0 ? (
+              <div className="text-center py-12 sleek-card rounded-2xl border border-dashed border-white/5 text-slate-500 font-medium">
+                No duplicates prevented during the current session's scans.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {[...preventedDuplicates]
+                  .sort((a, b) => new Date(b.scannedAt).getTime() - new Date(a.scannedAt).getTime())
+                  .map((dup) => (
+                    <div key={dup.id} className="sleek-card rounded-2xl border border-white/5 p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <div className="space-y-1 text-left flex-grow">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-bold text-slate-200">{dup.title}</h4>
+                          <span className="px-2 py-0.5 rounded-md bg-slate-950 text-[10px] font-mono text-slate-400 border border-white/5 uppercase">
+                            {dup.source}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 font-semibold">
+                          {dup.company} · <span className="text-slate-500 font-normal">{dup.location}</span>
+                        </p>
+                        {dup.url && (
+                          <a 
+                            href={dup.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-[10px] text-indigo-455 hover:text-indigo-400 flex items-center gap-1.5 mt-1 font-semibold"
+                          >
+                            <ExternalLink className="w-3 h-3" /> View Duplicate Link
+                          </a>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 bg-amber-950/20 border border-amber-500/10 px-3 py-1.5 rounded-xl self-stretch sm:self-auto text-center justify-center">
+                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider font-mono">
+                          {dup.reason}
+                        </span>
                       </div>
                     </div>
-                  )}
-
-                  {/* Bottom Expand Toggle Bar */}
-                  <button
-                    onClick={() => setExpandedJobId(isExpanded ? null : job.id)}
-                    className="w-full py-2.5 bg-slate-900/20 hover:bg-slate-900/60 text-slate-400 hover:text-slate-200 text-[11px] font-bold border-t border-white/5 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    {isExpanded ? (
-                      <>
-                        <ChevronUp className="w-4 h-4" /> Collapse Match Details
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="w-4 h-4" /> Expand Details & Match Reasoning
-                      </>
-                    )}
-                  </button>
-                </div>
-              );
-            })}
+                  ))}
+              </div>
+            )}
           </div>
+        )}
+
+        {/* Tab Content 3: Dismissed Postings */}
+        {activeScannerTab === 'dismissed' && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-450 font-display flex items-center gap-1.5">
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" /> Dismissed Postings Archive ({dismissedJobs.length} Positions)
+              </span>
+              <span className="text-xs text-slate-500 font-mono">Restore listings removed in error</span>
+            </div>
+
+            {dismissedJobs.length === 0 ? (
+              <div className="text-center py-12 sleek-card rounded-2xl border border-dashed border-white/5 text-slate-500 font-medium">
+                No dismissed applications found.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3">
+                {[...dismissedJobs].map((dJob) => (
+                  <div key={dJob.id} className="sleek-card rounded-2xl border border-white/5 p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div className="space-y-1 text-left flex-grow">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h4 className="text-sm font-bold text-slate-200">{dJob.title}</h4>
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${getMatchColor(dJob.matchScore)} shrink-0`}>
+                          {dJob.matchScore}% Match
+                        </span>
+                        {dJob.sourceTag && (
+                          <span className="px-2 py-0.5 rounded-md bg-slate-950 text-[9px] font-mono font-bold text-slate-400 border border-white/5 uppercase">
+                            {dJob.sourceTag}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 font-semibold">
+                        {dJob.company} · <span className="text-slate-500 font-normal">{dJob.location}</span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleUndismissJob(dJob)}
+                      className="px-3.5 py-2 rounded-xl bg-emerald-655/10 hover:bg-emerald-655/20 text-emerald-400 font-bold text-xs border border-emerald-500/20 flex items-center gap-1.5 transition-all self-stretch sm:self-auto justify-center cursor-pointer"
+                      title="Restore listing back to Discovered postings"
+                    >
+                      <Undo className="w-3.5 h-3.5" /> Undismiss
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
         </div>
       )}
     </div>
