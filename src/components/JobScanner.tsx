@@ -1226,7 +1226,9 @@ export default function JobScanner({
               </div>
             ))}
           </div>
-          {/* 🧭 Tabbed Scanner Boards Dashboard */}
+        </div>
+      )}
+      {/* 🧭 Tabbed Scanner Boards Dashboard */}
       <div className="space-y-4" id="scanned-matches-tabs-container">
         {/* Tab selection header */}
         <div className="flex border-b border-white/5 pb-2 mb-4 gap-4">
@@ -1598,8 +1600,6 @@ export default function JobScanner({
           </div>
         )}
       </div>
-        </div>
-      )}
     </div>
   );
 }
