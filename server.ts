@@ -1739,8 +1739,27 @@ app.post('/api/jobs/source', async (req, res) => {
       }
       round++;
     }
+    // 4. Prioritize jobs from sources with the lowest non-zero total counts, with keyword relevance as a tie-breaker
+    const sourceCounts: Record<string, number> = {
+      greenhouse: ghJobs.length,
+      lever: lvJobs.length,
+      ashby: ashJobs.length,
+      workday: wdJobs.length,
+      smartrecruiters: srJobs.length,
+      remoteok: rokJobs.length,
+      websearch: webScrapedJobs.length,
+    };
 
-    // 4. Keep the round-robin list order to preserve source/company diversity
+    roundRobinJobs.sort((a, b) => {
+      const countA = sourceCounts[a.source] || 0;
+      const countB = sourceCounts[b.source] || 0;
+      if (countA !== countB) {
+        return countA - countB;
+      }
+      const kA = roleKeywords.filter(kw => a.title.toLowerCase().includes(kw)).length;
+      const kB = roleKeywords.filter(kw => b.title.toLowerCase().includes(kw)).length;
+      return kB - kA;
+    });
 
     res.json({
       jobs: roundRobinJobs.slice(0, 40),
@@ -1943,8 +1962,22 @@ app.post('/api/jobs/scan', async (req, res) => {
         const k = `${j.title.toLowerCase()}|${j.company.toLowerCase()}`;
         return seen.has(k) ? false : (seen.add(k), true);
       });
-      // Sort by keyword relevance score, take top 25 for LLM scoring
+      // Sort by source counts ascending (lowest non-zero count first), with keyword relevance as a tie-breaker
+      const sourceCounts: Record<string, number> = {
+        greenhouse: ghRes.status === 'fulfilled' ? ghRes.value.length : 0,
+        lever: lvRes.status === 'fulfilled' ? lvRes.value.length : 0,
+        ashby: ashRes.status === 'fulfilled' ? ashRes.value.length : 0,
+        workday: wdRes.status === 'fulfilled' ? wdRes.value.length : 0,
+        smartrecruiters: srRes.status === 'fulfilled' ? srRes.value.length : 0,
+        remoteok: rokRes.status === 'fulfilled' ? rokRes.value.length : 0,
+      };
+
       unique.sort((a, b) => {
+        const countA = sourceCounts[a.source] || 0;
+        const countB = sourceCounts[b.source] || 0;
+        if (countA !== countB) {
+          return countA - countB;
+        }
         const kA = roleKeywords.filter(kw => (a.title + a.description).toLowerCase().includes(kw)).length;
         const kB = roleKeywords.filter(kw => (b.title + b.description).toLowerCase().includes(kw)).length;
         return kB - kA;
