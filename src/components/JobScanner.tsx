@@ -432,6 +432,20 @@ export default function JobScanner({
       const fullyScoredJobs: Job[] = [];
       let duplicatesSkipped = 0;
 
+      const getActiveJobsDeduplicated = () => {
+        const combined = [...scannedJobsRef.current, ...fullyScoredJobs];
+        const seen = new Set<string>();
+        const unique: Job[] = [];
+        for (const job of combined) {
+          const key = `${job.title.toLowerCase().trim()}|${job.company.toLowerCase().trim()}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            unique.push(job);
+          }
+        }
+        return unique;
+      };
+
       // Pre-evaluation filtering duplicate helper
       const getDuplicateStatus = (job: any) => {
         const titleL = job.title.toLowerCase().trim();
@@ -515,7 +529,7 @@ export default function JobScanner({
 
         // 2. Check company limit BEFORE calling LLM
         const companyKey = rawJob.company.toLowerCase().trim();
-        const currentCompanyCount = [...scannedJobsRef.current, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
+        const currentCompanyCount = getActiveJobsDeduplicated().filter(j => j.company.toLowerCase().trim() === companyKey).length;
         const maxPerCompany = profileRef.current.maxMatchesPerCompany || 3;
         
         if (profileRef.current.limitCompanyMatches && currentCompanyCount >= maxPerCompany) {
@@ -527,7 +541,7 @@ export default function JobScanner({
         }
 
         // 3. Check board capacity BEFORE calling LLM
-        const currentTotalCount = [...scannedJobsRef.current, ...fullyScoredJobs].length;
+        const currentTotalCount = getActiveJobsDeduplicated().length;
         const capacityLimit = profileRef.current.maxDiscoveredJobs || 30;
         
         if (currentTotalCount >= capacityLimit) {
@@ -574,8 +588,9 @@ export default function JobScanner({
             );
           } else {
             // Live safety check (just in case count changed in async gap)
-            const liveCompanyCount = [...scannedJobsRef.current, ...fullyScoredJobs].filter(j => j.company.toLowerCase().trim() === companyKey).length;
-            const liveTotalCount = [...scannedJobsRef.current, ...fullyScoredJobs].length;
+            const activeJobs = getActiveJobsDeduplicated();
+            const liveCompanyCount = activeJobs.filter(j => j.company.toLowerCase().trim() === companyKey).length;
+            const liveTotalCount = activeJobs.length;
             
             if (profileRef.current.limitCompanyMatches && liveCompanyCount >= maxPerCompany) {
               log(
