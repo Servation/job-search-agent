@@ -411,6 +411,13 @@ const LEVER_SLUGS: readonly string[] = [
   'canva', 'duolingo', 'coursera', 'palantir', 'snowflake', 'purestorage'
 ];
 
+const ASHBY_SLUGS: readonly string[] = [
+  'linear', 'posthog', 'perplexity', 'vercel', 'clerk', 'supabase', 'resend',
+  'warp', 'modal', 'replicate', 'fly', 'anysphere', 'pinecone', 'copilot',
+  'dust', 'vantage', 'valtown', 'dub', 'railway', 'pydantic', 'langchain',
+  'chroma', 'midjourney', 'safebase', 'hume', 'runway', 'sentry'
+];
+
 interface WorkdayCompany {
   name: string;
   tenant: string;
@@ -453,6 +460,7 @@ let SMARTRECRUITERS_DETAILS_TEMPLATE = 'https://api.smartrecruiters.com/v1/compa
 let lastRegistryFetchTime = 0;
 let cachedGreenhouseSlugs: string[] = [...GREENHOUSE_SLUGS];
 let cachedLeverSlugs: string[] = [...LEVER_SLUGS];
+let cachedAshbySlugs: string[] = [...ASHBY_SLUGS];
 let cachedWorkdayDirectory: WorkdayCompany[] = [...WORKDAY_DIRECTORY];
 let cachedSmartRecruitersDirectory: SmartRecruitersCompany[] = [...SMARTRECRUITERS_DIRECTORY];
 
@@ -480,6 +488,10 @@ async function updateCompanyDirectoriesFromRegistry() {
         if (Array.isArray(data.lever)) {
           cachedLeverSlugs = data.lever;
           console.log(`[Registry] Updated Lever slugs: ${cachedLeverSlugs.length} entries.`);
+        }
+        if (Array.isArray(data.ashby)) {
+          cachedAshbySlugs = data.ashby;
+          console.log(`[Registry] Updated Ashby slugs: ${cachedAshbySlugs.length} entries.`);
         }
         if (Array.isArray(data.workday)) {
           cachedWorkdayDirectory = data.workday;
@@ -514,12 +526,13 @@ async function checkSourceHealth(
 ): Promise<{
   greenhouse: boolean;
   lever: boolean;
+  ashby: boolean;
   workday: boolean;
   smartrecruiters: boolean;
   warnings: string[];
 }> {
   const warnings: string[] = [];
-  const status = { greenhouse: true, lever: true, workday: true, smartrecruiters: true };
+  const status = { greenhouse: true, lever: true, ashby: true, workday: true, smartrecruiters: true };
 
   // 1. Test Greenhouse (via stripe)
   try {
@@ -543,6 +556,18 @@ async function checkSourceHealth(
   } catch (err: any) {
     status.lever = false;
     warnings.push(`[Health Check Warning] Lever API is degraded/offline (${err.message}). Sourcing from Lever skipped.`);
+  }
+
+  // 3. Test Ashby (via linear)
+  try {
+    const res = await fetch('https://api.ashbyhq.com/posting-api/job-board/linear', {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(3000)
+    });
+    if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
+  } catch (err: any) {
+    status.ashby = false;
+    warnings.push(`[Health Check Warning] Ashby API is degraded/offline (${err.message}). Sourcing from Ashby skipped.`);
   }
 
   // 3. Test Workday (via Nvidia and Salesforce search)
@@ -638,6 +663,11 @@ const SLUG_DISPLAY_NAMES: Record<string, string> = {
   'moderntreasury': 'Modern Treasury', 'clipboard-health': 'Clipboard Health',
   'pagerduty': 'PagerDuty', 'workos': 'WorkOS', 'airbyte': 'Airbyte',
   'chainguard': 'Chainguard', 'fivetran': 'Fivetran', 'hightouch': 'Hightouch',
+  'posthog': 'PostHog', 'supabase': 'Supabase', 'pinecone': 'Pinecone',
+  'safebase': 'SafeBase', 'valtown': 'Val Town', 'langchain': 'LangChain',
+  'copilot': 'Copilot', 'perplexity': 'Perplexity', 'replicate': 'Replicate',
+  'anysphere': 'Cursor', 'midjourney': 'Midjourney', 'fly': 'Fly.io',
+  'clerk': 'Clerk', 'resend': 'Resend', 'warp': 'Warp', 'modal': 'Modal',
 };
 
 function communitySlugToName(slug: string): string {
@@ -911,7 +941,7 @@ function matchesKeywords(title: string, keywords: string[]): boolean {
 interface RawCommunityJob {
   title: string; company: string; location: string; description: string;
   url: string; applyUrl?: string; postedAt: string; type: string;
-  salary?: string; isRemote: boolean; source: 'greenhouse' | 'lever' | 'remoteok' | 'websearch';
+  salary?: string; isRemote: boolean; source: 'greenhouse' | 'lever' | 'workday' | 'smartrecruiters' | 'ashby' | 'remoteok' | 'websearch';
 }
 
 async function fetchGreenhouseJobs(
@@ -1018,6 +1048,73 @@ async function fetchLeverJobs(
   return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
 }
 
+async function fetchAshbyJobs(
+  slugs: readonly string[],
+  keywords: string[],
+  targetRoles: string[],
+  searchLocation: string,
+  prefersRemote: boolean,
+  yearsOfExperience: number = 0
+): Promise<RawCommunityJob[]> {
+  const results = await Promise.allSettled(
+    slugs.map(async (slug): Promise<RawCommunityJob[]> => {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 8000); // 8 seconds timeout
+      try {
+        const res = await fetch(
+          `https://api.ashbyhq.com/posting-api/job-board/${slug}?includeCompensation=true`,
+          { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } }
+        );
+        clearTimeout(tid);
+        if (!res.ok) return [];
+        const data = await res.json();
+        const name = communitySlugToName(slug);
+        
+        const jobsList = (data.jobs as any[]) || [];
+        return jobsList
+          .filter(j => {
+            if (!j.isListed) return false;
+            const title = j.title || '';
+            const locName = j.location || '';
+            const desc = j.descriptionPlain || j.descriptionHtml || '';
+            return matchesKeywords(title, keywords) &&
+                   !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
+                   !exceedsExperienceRequirement(desc, yearsOfExperience) &&
+                   matchesLocation(locName, searchLocation, prefersRemote);
+          })
+          .map(j => {
+            const isRemote = j.workplaceType === 'Remote' || (j.location || '').toLowerCase().includes('remote');
+            const desc = (j.descriptionPlain || (j.descriptionHtml ? stripHtmlCommunity(j.descriptionHtml) : '')).slice(0, 1800);
+            
+            let salaryStr = 'Not specified';
+            if (j.compensation) {
+              if (j.compensation.summary) {
+                salaryStr = j.compensation.summary;
+              } else if (j.compensation.minValue && j.compensation.maxValue) {
+                const cur = j.compensation.currencyCode || 'USD';
+                salaryStr = `${cur} ${Math.round(j.compensation.minValue / 1000)}k–${Math.round(j.compensation.maxValue / 1000)}k`;
+              }
+            }
+
+            return {
+              title: j.title || 'Unknown Role',
+              company: name,
+              location: j.location || 'Remote',
+              description: desc,
+              url: `https://jobs.ashbyhq.com/${slug}/${j.id}`,
+              postedAt: new Date().toISOString(),
+              type: j.employmentType === 'Contract' ? 'Contract' : (j.employmentType === 'PartTime' ? 'Part-Time' : 'Full-Time'),
+              isRemote,
+              salary: salaryStr,
+              source: 'ashby' as const,
+            };
+          });
+      } catch { clearTimeout(tid); return []; }
+    })
+  );
+  return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+}
+
 async function fetchWorkdayJobs(
   companies: WorkdayCompany[],
   keywords: string[],
@@ -1111,7 +1208,7 @@ async function fetchWorkdayJobs(
                   postedAt: p.postedOn || new Date().toISOString(),
                   type: 'Full-Time',
                   isRemote: loc.toLowerCase().includes('remote'),
-                  source: 'workday' as any
+                  source: 'workday' as const
                 };
               }
             } catch (err: any) {
@@ -1133,7 +1230,7 @@ async function fetchWorkdayJobs(
               postedAt: p.postedOn || new Date().toISOString(),
               type: 'Full-Time',
               isRemote: loc.toLowerCase().includes('remote'),
-              source: 'workday' as any
+              source: 'workday' as const
             };
           })
         );
@@ -1225,7 +1322,7 @@ async function fetchSmartRecruitersJobs(
                   postedAt: p.releasedDate || new Date().toISOString(),
                   type: 'Full-Time',
                   isRemote: loc.toLowerCase().includes('remote') || dData.location?.remote === true,
-                  source: 'smartrecruiters' as any
+                  source: 'smartrecruiters' as const
                 };
               }
             } catch (err: any) {
@@ -1246,7 +1343,7 @@ async function fetchSmartRecruitersJobs(
               postedAt: p.releasedDate || new Date().toISOString(),
               type: 'Full-Time',
               isRemote: loc.toLowerCase().includes('remote'),
-              source: 'smartrecruiters' as any
+              source: 'smartrecruiters' as const
             };
           })
         );
@@ -1427,16 +1524,17 @@ app.post('/api/jobs/source', async (req, res) => {
 
     console.log('[Source Endpoint] Sourcing community and F500 jobs...');
     // 1. Fetch community and F500 jobs in parallel, bypassing degraded/offline channels
-    const [ghJobs, lvJobs, wdJobs, srJobs, rokJobs] = await Promise.all([
+    const [ghJobs, lvJobs, ashJobs, wdJobs, srJobs, rokJobs] = await Promise.all([
       health.greenhouse ? fetchGreenhouseJobs(cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.lever ? fetchLeverJobs(cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+      health.ashby ? fetchAshbyJobs(cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.workday ? fetchWorkdayJobs(cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       health.smartrecruiters ? fetchSmartRecruitersJobs(cachedSmartRecruitersDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
       (prefersRemote || prefersHybrid) ? fetchRemoteOKJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
     ]);
 
-    let communityJobs = [...ghJobs, ...lvJobs, ...wdJobs, ...srJobs, ...rokJobs];
-    console.log(`[Source Endpoint] Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Workday: ${wdJobs.length}, SmartRecruiters: ${srJobs.length}, RemoteOK: ${rokJobs.length}`);
+    let communityJobs = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs, ...srJobs, ...rokJobs];
+    console.log(`[Source Endpoint] Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}, SmartRecruiters: ${srJobs.length}, RemoteOK: ${rokJobs.length}`);
 
     // 2. Fetch search engine grounding links (DuckDuckGo/Yahoo) to expand findings
     console.log('[Source Endpoint] Sourcing web search links...');
@@ -1451,7 +1549,7 @@ app.post('/api/jobs/source', async (req, res) => {
       remoteQualifier = locPrefList.length === 1 ? locPrefList[0] : `(${locPrefList.join(' OR ')})`;
     }
 
-    const simpleQuery = `"${rolesQuery}" jobs ${remoteQualifier} site:lever.co OR site:greenhouse.io OR site:myworkdayjobs.com`;
+    const simpleQuery = `"${rolesQuery}" jobs ${remoteQualifier} site:lever.co OR site:greenhouse.io OR site:myworkdayjobs.com OR site:jobs.ashbyhq.com`;
     
     let links: string[] = [];
     try {
@@ -1650,6 +1748,7 @@ app.post('/api/jobs/source', async (req, res) => {
       sourcingStats: {
         greenhouse: { count: ghJobs.length, status: health.greenhouse ? 'ok' : 'skipped' },
         lever: { count: lvJobs.length, status: health.lever ? 'ok' : 'skipped' },
+        ashby: { count: ashJobs.length, status: health.ashby ? 'ok' : 'skipped' },
         workday: { count: wdJobs.length, status: health.workday ? 'ok' : 'skipped' },
         smartrecruiters: { count: srJobs.length, status: health.smartrecruiters ? 'ok' : 'skipped' },
         remoteok: { count: rokJobs.length, status: (prefersRemote || prefersHybrid) ? 'ok' : 'skipped' },
@@ -1822,9 +1921,10 @@ app.post('/api/jobs/scan', async (req, res) => {
     console.log('[Community Sources] Starting Greenhouse, Lever, Workday, SmartRecruiters, RemoteOK fetch in parallel...');
     const communitySourcesPromise = (async () => {
       await updateCompanyDirectoriesFromRegistry();
-      const [ghRes, lvRes, wdRes, srRes, rokRes] = await Promise.allSettled([
+      const [ghRes, lvRes, ashRes, wdRes, srRes, rokRes] = await Promise.allSettled([
         fetchGreenhouseJobs(cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchLeverJobs(cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
+        fetchAshbyJobs(cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchWorkdayJobs(cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         fetchSmartRecruitersJobs(cachedSmartRecruitersDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
         (prefersRemote || prefersHybrid) ? fetchRemoteOKJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
@@ -1832,6 +1932,7 @@ app.post('/api/jobs/scan', async (req, res) => {
       const raw: RawCommunityJob[] = [
         ...(ghRes.status === 'fulfilled' ? ghRes.value : []),
         ...(lvRes.status === 'fulfilled' ? lvRes.value : []),
+        ...(ashRes.status === 'fulfilled' ? ashRes.value : []),
         ...(wdRes.status === 'fulfilled' ? wdRes.value : []),
         ...(srRes.status === 'fulfilled' ? srRes.value : []),
         ...(rokRes.status === 'fulfilled' ? rokRes.value : []),

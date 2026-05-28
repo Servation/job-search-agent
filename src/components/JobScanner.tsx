@@ -364,6 +364,7 @@ export default function JobScanner({
         log(`[Event Logs] Sourcing sites summary:`, "fetch");
         if (stats.greenhouse) log(`  - Greenhouse API: ${stats.greenhouse.count} jobs found (${stats.greenhouse.status})`, "fetch");
         if (stats.lever) log(`  - Lever API: ${stats.lever.count} jobs found (${stats.lever.status})`, "fetch");
+        if (stats.ashby) log(`  - Ashby API: ${stats.ashby.count} jobs found (${stats.ashby.status})`, "fetch");
         if (stats.workday) log(`  - Workday API (F500): ${stats.workday.count} jobs found (${stats.workday.status})`, "fetch");
         if (stats.smartrecruiters) log(`  - SmartRecruiters API: ${stats.smartrecruiters.count} jobs found (${stats.smartrecruiters.status})`, "fetch");
         if (stats.remoteok) log(`  - RemoteOK API: ${stats.remoteok.count} jobs found (${stats.remoteok.status})`, "fetch");
