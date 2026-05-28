@@ -77,7 +77,7 @@ async function queryCustomLLM(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 seconds timeout
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
 
   try {
     const response = await fetch(cleanCompletionsUrl, {
@@ -102,7 +102,7 @@ async function queryCustomLLM(
   } catch (err: any) {
     clearTimeout(timeoutId);
     const isTimeout = err.name === 'AbortError';
-    const errMsg = isTimeout ? 'LLM Request Timeout (12000ms limit exceeded)' : err.message;
+    const errMsg = isTimeout ? 'LLM Request Timeout (30000ms limit exceeded)' : err.message;
     
     if (attemptsLeft > 1) {
       console.warn(`[queryCustomLLM] Attempt failed: ${errMsg}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
@@ -111,7 +111,7 @@ async function queryCustomLLM(
     }
     
     if (isTimeout) {
-      throw new Error(`LLM Request Timeout (12000ms limit exceeded)`);
+      throw new Error(`LLM Request Timeout (30000ms limit exceeded)`);
     }
     throw err;
   }
@@ -2415,7 +2415,7 @@ app.post('/api/llm/proxy', async (req, res) => {
 
     const executeFetch = async (attemptsLeft = 2): Promise<Response> => {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 seconds timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 seconds timeout
 
       try {
         const resObj = await fetch(cleanCompletionsUrl, {
@@ -2433,7 +2433,7 @@ app.post('/api/llm/proxy', async (req, res) => {
       } catch (err: any) {
         clearTimeout(timeoutId);
         const isTimeout = err.name === 'AbortError';
-        const errMsg = isTimeout ? 'LLM Request Timeout (12000ms limit exceeded)' : err.message;
+        const errMsg = isTimeout ? 'LLM Request Timeout (30000ms limit exceeded)' : err.message;
 
         if (attemptsLeft > 1) {
           console.warn(`[Proxy Custom LLM] Attempt failed: ${errMsg}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
@@ -2461,7 +2461,7 @@ app.post('/api/llm/proxy', async (req, res) => {
     console.error('Error in Custom LLM Proxy:', err);
     const isTimeout = err.name === 'AbortError' || err.message?.includes('Timeout');
     res.status(isTimeout ? 408 : 500).json({ 
-      error: isTimeout ? 'LLM Proxy Request Timeout (12000ms limit exceeded)' : (err.message || 'Failed to connect to the custom LLM endpoint.')
+      error: isTimeout ? 'LLM Proxy Request Timeout (30000ms limit exceeded)' : (err.message || 'Failed to connect to the custom LLM endpoint.')
     });
   }
 });
