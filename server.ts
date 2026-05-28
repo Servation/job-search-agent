@@ -1749,30 +1749,37 @@ app.post('/api/jobs/source', async (req, res) => {
       }
       round++;
     }
-    // 4. Prioritize jobs from sources with the lowest non-zero total counts, with keyword relevance as a tie-breaker
-    const sourceCounts: Record<string, number> = {
-      greenhouse: ghJobs.length,
-      lever: lvJobs.length,
-      ashby: ashJobs.length,
-      workday: wdJobs.length,
-      smartrecruiters: srJobs.length,
-      remoteok: rokJobs.length,
-      websearch: webScrapedJobs.length,
-    };
+    // 4. Source-level Round-Robin Selection to interleave listings from different platforms fairly
+    const jobsBySource: Record<string, any[]> = {};
+    for (const j of roundRobinJobs) {
+      const s = j.source || 'websearch';
+      if (!jobsBySource[s]) jobsBySource[s] = [];
+      jobsBySource[s].push(j);
+    }
 
-    roundRobinJobs.sort((a, b) => {
-      const countA = sourceCounts[a.source] || 0;
-      const countB = sourceCounts[b.source] || 0;
-      if (countA !== countB) {
-        return countA - countB;
-      }
-      const kA = roleKeywords.filter(kw => a.title.toLowerCase().includes(kw)).length;
-      const kB = roleKeywords.filter(kw => b.title.toLowerCase().includes(kw)).length;
-      return kB - kA;
+    const interleavedJobs: any[] = [];
+    let sourceRoundHasMore = true;
+    let sourceRound = 0;
+    const activeSources = Object.keys(jobsBySource).sort((a, b) => {
+      const countA = jobsBySource[a].length;
+      const countB = jobsBySource[b].length;
+      return countA - countB;
     });
 
+    while (sourceRoundHasMore) {
+      sourceRoundHasMore = false;
+      for (const src of activeSources) {
+        const list = jobsBySource[src];
+        if (sourceRound < list.length) {
+          interleavedJobs.push(list[sourceRound]);
+          sourceRoundHasMore = true;
+        }
+      }
+      sourceRound++;
+    }
+
     res.json({
-      jobs: roundRobinJobs.slice(0, 40),
+      jobs: interleavedJobs.slice(0, 40),
       warnings: health.warnings,
       sourcingStats: {
         greenhouse: { count: ghJobs.length, status: health.greenhouse ? 'ok' : 'skipped' },
@@ -1979,27 +1986,44 @@ app.post('/api/jobs/scan', async (req, res) => {
         const k = `${j.title.toLowerCase()}|${j.company.toLowerCase()}`;
         return seen.has(k) ? false : (seen.add(k), true);
       });
-      // Sort by source counts ascending (lowest non-zero count first), with keyword relevance as a tie-breaker
-      const sourceCounts: Record<string, number> = {
-        greenhouse: ghRes.status === 'fulfilled' ? ghRes.value.length : 0,
-        lever: lvRes.status === 'fulfilled' ? lvRes.value.length : 0,
-        ashby: ashRes.status === 'fulfilled' ? ashRes.value.length : 0,
-        workday: wdRes.status === 'fulfilled' ? wdRes.value.length : 0,
-        smartrecruiters: srRes.status === 'fulfilled' ? srRes.value.length : 0,
-        remoteok: rokRes.status === 'fulfilled' ? rokRes.value.length : 0,
-      };
+      // Group and interleave jobs from different platforms round-robin
+      const jobsBySource: Record<string, any[]> = {};
+      for (const j of unique) {
+        const s = j.source || 'websearch';
+        if (!jobsBySource[s]) jobsBySource[s] = [];
+        jobsBySource[s].push(j);
+      }
 
-      unique.sort((a, b) => {
-        const countA = sourceCounts[a.source] || 0;
-        const countB = sourceCounts[b.source] || 0;
-        if (countA !== countB) {
-          return countA - countB;
-        }
-        const kA = roleKeywords.filter(kw => (a.title + a.description).toLowerCase().includes(kw)).length;
-        const kB = roleKeywords.filter(kw => (b.title + b.description).toLowerCase().includes(kw)).length;
-        return kB - kA;
+      for (const s of Object.keys(jobsBySource)) {
+        jobsBySource[s].sort((a, b) => {
+          const kA = roleKeywords.filter(kw => (a.title + a.description).toLowerCase().includes(kw)).length;
+          const kB = roleKeywords.filter(kw => (b.title + b.description).toLowerCase().includes(kw)).length;
+          return kB - kA;
+        });
+      }
+
+      const interleavedJobs: any[] = [];
+      let sourceRoundHasMore = true;
+      let sourceRound = 0;
+      const activeSources = Object.keys(jobsBySource).sort((a, b) => {
+        const countA = jobsBySource[a].length;
+        const countB = jobsBySource[b].length;
+        return countA - countB;
       });
-      const toScore = unique.slice(0, 25);
+
+      while (sourceRoundHasMore) {
+        sourceRoundHasMore = false;
+        for (const src of activeSources) {
+          const list = jobsBySource[src];
+          if (sourceRound < list.length) {
+            interleavedJobs.push(list[sourceRound]);
+            sourceRoundHasMore = true;
+          }
+        }
+        sourceRound++;
+      }
+
+      const toScore = interleavedJobs.slice(0, 25);
       console.log(`[Community Sources] ${unique.length} unique matched jobs found. Scoring top ${toScore.length}...`);
       return scoreCommunityJobs(toScore, rawText, llmConfig, experienceContext, savedJobs);
     })();
