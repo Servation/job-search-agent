@@ -1434,12 +1434,12 @@ async function scoreCommunityJobs(
     if (!llmConfig?.endpoint || !rawText) return base;
     try {
       const evalPrompt = `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, 3000)}"""
+        Candidate Resume: """${rawText.slice(0, 1500)}"""
         Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, 1200)}
+        Description: ${job.description.slice(0, 800)}
         Experience rule: ${experienceContext}
         Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"Brief analysis","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
+        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
       const txt = await queryCustomLLM(
         llmConfig.endpoint,
         llmConfig.apiKey,
@@ -1847,9 +1847,9 @@ app.post('/api/jobs/evaluate', async (req, res) => {
     try {
       console.log(`[Evaluate Endpoint] Scoring ${job.title} at ${job.company} via custom LLM...`);
       const evalPrompt = `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, 3000)}"""
+        Candidate Resume: """${rawText.slice(0, 1500)}"""
         Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, 1200)}
+        Description: ${job.description.slice(0, 800)}
         Experience rule: ${experienceContext}
         
         Candidate Preferred Location: ${searchLocation}
@@ -1864,7 +1864,7 @@ app.post('/api/jobs/evaluate', async (req, res) => {
         - If the job explicitly requires more than 2 years above the candidate's years of experience (from the Experience rule), you MUST score it 0 and state the reason as "Experience Mismatch: Requires X years, candidate has Y years".
         
         Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"Brief analysis","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
+        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
       
       const txt = await queryCustomLLM(
         llmConfig.endpoint,
@@ -2104,23 +2104,22 @@ app.post('/api/jobs/scan', async (req, res) => {
             try {
               const evalPrompt = `
                 You are an expert Job Placement Search Agent. Evaluate how well the candidate's resume matches the following job description.
-                
-                Candidate Resume:
+                 Candidate Resume:
                 """
-                ${rawText || ''}
+                ${(rawText || '').slice(0, 1500)}
                 """
                 
                 Job Title: ${job.title}
                 Company: ${job.company}
-                Job Description: ${(job.description || '').slice(0, 1200)}
-
+                Job Description: ${(job.description || '').slice(0, 800)}
+ 
                 Experience matching rule: ${experienceContext}
                 When computing matchScore, factor in whether the job's required years of experience falls within the candidate's acceptable range (their years ± 2). If the job explicitly requires significantly more experience than the candidate has (more than +2 years above their experience), you MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has Y years" in matchReason.
                 
                 Your response MUST be a valid JSON object matching this schema:
                 {
                   "matchScore": 85, // Integer from 0 to 100 representing how well the candidate's skills match the job description
-                  "matchReason": "Brief custom analysis detailing how the job fits their experience."
+                  "matchReason": "One sentence matching explanation under 15 words."
                 }
                 
                 Return ONLY the raw JSON object. Do not include markdown code blocks (such as \`\`\`json) or any extra conversational text.
@@ -2280,18 +2279,16 @@ app.post('/api/jobs/scan', async (req, res) => {
             
             console.log(`[Local Web Sourcing] Asking local model "${llmConfig.modelName}" to parse page text...`);
             const evalPrompt = `
-              Analyze the following job posting text and evaluate it against the candidate resume.
-              
-              Candidate Resume:
+              Analyze the following job posting text and evaluate it against the candidate resume              Candidate Resume:
               """
-              ${rawText || ''}
+              ${(rawText || '').slice(0, 1500)}
               """
               
               Job Post Text:
               """
               ${pageText}
               """
-
+ 
               Experience matching rule: ${experienceContext}
               When scoring, factor in the job's required years of experience. If the job's requirement falls within the candidate's range (their years ± 2 yrs), score normally. If it requires more than +2 years above the candidate's experience, reduce matchScore proportionally and explain in matchReason.
               
@@ -2305,7 +2302,7 @@ app.post('/api/jobs/scan', async (req, res) => {
                 "isW2": true, // true if standard W2/direct job, false if C2C/1099
                 "description": "Short 2-3 sentence overview of responsibilities.",
                 "matchScore": 85, // Integer from 0 to 100 on how well their skills match the job description
-                "matchReason": "Brief analysis detailing how the job fits their experience.",
+                "matchReason": "One sentence matching explanation under 15 words.",
                 "skillsRequired": ["Skill 1", "Skill 2"],
                 "industry": "Industry category (e.g. Technology)",
                 "experienceLevel": "Junior, Mid, Senior, or Lead",
