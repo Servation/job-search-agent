@@ -178,7 +178,7 @@ export default function JobScanner({
       const filtered = sortedPrev.filter(job => {
         const isSaved = savedJobs.some(s => s.title.toLowerCase() === job.title.toLowerCase() && s.company.toLowerCase() === job.company.toLowerCase());
         const isWatchlisted = watchlist.some(w => w.title.toLowerCase() === job.title.toLowerCase() && w.company.toLowerCase() === job.company.toLowerCase());
-        const key = `${job.company.toLowerCase()}|${job.title.toLowerCase()}`;
+        const key = `${job.company.toLowerCase().trim()}|${job.title.toLowerCase().trim()}`;
         const isDismissed = dismissedJobKeys.includes(key);
         
         if (isSaved || isWatchlisted || isDismissed) {
