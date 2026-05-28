@@ -282,15 +282,15 @@ export default function App() {
 
   const handleAddJobs = (newJobs: Job[]) => {
     // Add non-duplicate jobs to tracking board
-    setSavedJobs((prev) => {
-      const filtered = newJobs.filter(
-        (nj) => !prev.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase())
-      );
-      filtered.forEach((nj) => {
-        addAiLog(`User: Saved job "${nj.title}" at ${nj.company} to tracking board.`);
-      });
-      return [...filtered, ...prev];
+    const filtered = newJobs.filter(
+      (nj) => !savedJobs.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase())
+    );
+    filtered.forEach((nj) => {
+      addAiLog(`User: Saved job "${nj.title}" at ${nj.company} to tracking board.`);
     });
+    if (filtered.length > 0) {
+      setSavedJobs((prev) => [...filtered, ...prev]);
+    }
 
     // Also remove from watchlist if saved to tracker
     newJobs.forEach((nj) => {
@@ -299,17 +299,17 @@ export default function App() {
   };
 
   const handleAddToWatchlist = (newJobs: Job[]) => {
-    setWatchlist((prev) => {
-      const filtered = newJobs.filter(
-        (nj) => 
-          !prev.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase()) &&
-          !savedJobs.some((sj) => sj.title.toLowerCase() === nj.title.toLowerCase() && sj.company.toLowerCase() === nj.company.toLowerCase())
-      );
-      filtered.forEach((nj) => {
-        addAiLog(`User: Added job "${nj.title}" at ${nj.company} to watchlist.`);
-      });
-      return [...filtered, ...prev];
+    const filtered = newJobs.filter(
+      (nj) => 
+        !watchlist.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase()) &&
+        !savedJobs.some((sj) => sj.title.toLowerCase() === nj.title.toLowerCase() && sj.company.toLowerCase() === nj.company.toLowerCase())
+    );
+    filtered.forEach((nj) => {
+      addAiLog(`User: Added job "${nj.title}" at ${nj.company} to watchlist.`);
     });
+    if (filtered.length > 0) {
+      setWatchlist((prev) => [...filtered, ...prev]);
+    }
   };
 
   const handleRemoveFromWatchlist = (id: string) => {
