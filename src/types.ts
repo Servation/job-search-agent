@@ -4,7 +4,7 @@
  */
 
 export type JobTypeType = 'Full-Time' | 'Contract' | 'Part-Time';
-export type JobStatusType = 'discovered' | 'applied' | 'review' | 'interviewing' | 'offered' | 'rejected';
+export type JobStatusType = 'discovered' | 'applied' | 'review' | 'interviewing' | 'offered' | 'rejected' | 'dismissed';
 
 export interface Job {
   id: string;
@@ -32,6 +32,9 @@ export interface Job {
   isUrlVerified?: boolean;
   sourceTag?: string;
   retryTier?: number;
+  isRefined?: boolean;
+  refinementReason?: string;
+  isFullDescriptionFetched?: boolean;
 }
 
 export type LLMProvider = 'lmstudio' | 'openai';
@@ -62,6 +65,7 @@ export interface ResumeProfile {
   limitCompanyMatches?: boolean; // If true, restrict multiple matches from the same company
   maxMatchesPerCompany?: number; // Maximum matches to keep from a single company
   yearsOfExperience?: number; // Candidate's total professional years of experience (0 = not set)
+  blockedCompanies?: string[]; // List of company names to exclude from sourcing/evaluation
 }
 
 export interface JobAlert {
@@ -78,4 +82,30 @@ export interface AgentStats {
   totalScanned: number;
   duplicatesPrevented: number;
   activeMatchesCount: number;
+  llmEvaluations: number;
+  totalSourced: number;
 }
+
+export interface PreventedDuplicate {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  source: string;
+  url: string;
+  reason: string;
+  scannedAt: string;
+}
+
+export interface WorkdayCompany {
+  name: string;
+  tenant: string;
+  site: string;
+  host?: string;
+}
+
+export interface SmartRecruitersCompany {
+  name: string;
+  slug: string;
+}
+

@@ -5,230 +5,68 @@
 
 import express from 'express';
 import path from 'path';
-import { GoogleGenAI, Type } from '@google/genai';
+import fs from 'fs';
 import dotenv from 'dotenv';
+import { Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
-import { generateDynamicFeed } from './src/data/jobFeed.js';
 import { createRequire } from 'module';
+
+// Import Types
+import { Job, ResumeProfile, LLMConfig, PreventedDuplicate } from './src/types';
+
+// Import Backend Submodules
+import { PORT, globalState, addRefinerLog } from './server/config';
+import { readDb, writeDb } from './server/db';
+import { 
+  verifyJobUrl, 
+  isSpecificJobPost, 
+  extractRoleKeywords, 
+  matchesKeywords, 
+  isBlocklistedRole, 
+  exceedsExperienceRequirement, 
+  normalizeJobUrl, 
+  extractJobNumber, 
+  stripHtmlCommunity,
+  getDomain
+} from './server/utils';
+import { 
+  getAIClient, 
+  queryCustomLLM, 
+  queryCustomLLMAdaptive, 
+  scoreCommunityJobs 
+} from './server/llm';
+import { 
+  fetchGreenhouseJobs, 
+  fetchLeverJobs, 
+  fetchAshbyJobs, 
+  fetchWorkdayJobs, 
+  checkSourceHealth, 
+  updateCompanyDirectoriesFromRegistry,
+  RawCommunityJob
+} from './server/sourcing';
+import { 
+  runBackgroundSourcing, 
+  runRefinementCycle, 
+  startBackgroundRefiner 
+} from './server/scheduler';
+
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
-// Lazy initializer for Google Gemini API to prevent app crash if key is missing on startup
-let aiClient: GoogleGenAI | null = null;
-function getAIClient(): GoogleGenAI {
-  if (!aiClient) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      throw new Error('GEMINI_API_KEY is not defined. Please configure it in Settings > Secrets.');
-    }
-    aiClient = new GoogleGenAI({
-      apiKey: key,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
-  }
-  return aiClient;
-}
-
-const llmHealthState = {
-  consecutiveFailures: 0,
-  degradedMode: false,
-  totalAttempts: 0,
-  totalSuccesses: 0,
-  totalFailures: 0,
-};
-
-const CONTEXT_TIERS = [
-  { resumeChars: 1500, descriptionChars: 800, label: 'full' },      // Tier 0: Normal
-  { resumeChars: 1000, descriptionChars: 500, label: 'reduced' },   // Tier 1: Reduced
-  { resumeChars: 600,  descriptionChars: 300, label: 'minimal' },   // Tier 2: Minimal
-];
-
-function getContextLimits(isHN: boolean, tierIndex: number) {
-  const tier = CONTEXT_TIERS[tierIndex] || CONTEXT_TIERS[0];
-  return {
-    resumeChars: tier.resumeChars,
-    descriptionChars: isHN ? Math.max(tier.descriptionChars * 2, 500) : tier.descriptionChars
-  };
-}
-
-/**
- * Performs raw LLM completion request.
- */
-async function performLLMRequest(
-  endpoint: string,
-  apiKey: string,
-  modelName: string,
-  prompt: string,
-  timeoutMs: number
-): Promise<string> {
-  let targetUrl = endpoint.trim();
-  if (targetUrl.endsWith('/chat/completions')) {
-    targetUrl = targetUrl.replace(/\/chat\/completions$/, '');
-  }
-  const cleanCompletionsUrl = `${targetUrl}/chat/completions`;
-
-  const body: any = {
-    model: modelName,
-    messages: [
-      {
-        role: 'system',
-        content: 'You are an expert ATS resume analyzer. Extract and return resume details strictly as a valid JSON object. Do not include markdown wraps or anything else other than raw JSON.'
-      },
-      {
-        role: 'user',
-        content: prompt
-      }
-    ],
-    temperature: 0.1
-  };
-
-  if (targetUrl.includes('api.openai.com')) {
-    body.response_format = { type: "json_object" };
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const response = await fetch(cleanCompletionsUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`LLM Sourcing Error (HTTP ${response.status}): ${errText}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '{}';
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error(`LLM Request Timeout (${timeoutMs}ms limit exceeded)`);
-    }
-    throw err;
-  }
-}
-
-/**
- * Queries an OpenAI-compatible endpoint with a prompt using legacy signature.
- */
-async function queryCustomLLM(
-  endpoint: string,
-  apiKey: string,
-  modelName: string,
-  prompt: string,
-  attemptsLeft = 2,
-  timeoutMs = 30000
-): Promise<string> {
-  try {
-    return await performLLMRequest(endpoint, apiKey, modelName, prompt, timeoutMs);
-  } catch (err: any) {
-    if (attemptsLeft > 1) {
-      console.warn(`[queryCustomLLM] Attempt failed: ${err.message}. Retrying in 1.5s... (${attemptsLeft - 1} attempts remaining)`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      return queryCustomLLM(endpoint, apiKey, modelName, prompt, attemptsLeft - 1, timeoutMs);
-    }
-    throw err;
-  }
-}
-
-/**
- * Adaptive LLM query function with context reduction, escalating timeouts, and circuit breaker.
- */
-async function queryCustomLLMAdaptive(
-  endpoint: string,
-  apiKey: string,
-  modelName: string,
-  promptBuilder: (resumeChars: number, descChars: number) => string,
-  baseTimeoutMs = 30000,
-  isHN = false
-): Promise<{ content: string; tier: number }> {
-  let startTier = 0;
-  let baseTimeout = baseTimeoutMs;
-
-  if (llmHealthState.degradedMode) {
-    startTier = 1;
-    baseTimeout = baseTimeoutMs * 1.5;
-    console.warn(`[queryCustomLLMAdaptive] LLM Sourcing: Running in DEGRADED mode. Starting at Tier 1 context, base timeout: ${baseTimeout}ms`);
-  }
-
-  const maxAttempts = 3;
-  let lastError: any = null;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const currentTierIndex = Math.min(startTier + attempt, CONTEXT_TIERS.length - 1);
-    const limits = getContextLimits(isHN, currentTierIndex);
-    const attemptTimeoutMs = Math.round(baseTimeout * Math.pow(1.5, attempt));
-    const prompt = promptBuilder(limits.resumeChars, limits.descriptionChars);
-
-    console.log(`[queryCustomLLMAdaptive] Attempt ${attempt + 1}/${maxAttempts} (Tier ${currentTierIndex}: Resume ${limits.resumeChars} chars, Description ${limits.descriptionChars} chars) with timeout ${attemptTimeoutMs}ms`);
-
-    llmHealthState.totalAttempts++;
-
-    try {
-      const result = await performLLMRequest(endpoint, apiKey, modelName, prompt, attemptTimeoutMs);
-
-      // Success! Reset circuit breaker
-      if (llmHealthState.degradedMode) {
-        console.log(`[queryCustomLLMAdaptive] Success on Attempt ${attempt + 1} at Tier ${currentTierIndex}! Resetting degraded mode.`);
-      }
-      llmHealthState.consecutiveFailures = 0;
-      llmHealthState.degradedMode = false;
-      llmHealthState.totalSuccesses++;
-
-      return {
-        content: result,
-        tier: currentTierIndex
-      };
-    } catch (err: any) {
-      lastError = err;
-      console.warn(`[queryCustomLLMAdaptive] Attempt ${attempt + 1} failed: ${err.message || err}`);
-
-      if (attempt < maxAttempts - 1) {
-        const backoffBase = 1500 * Math.pow(1.5, attempt);
-        const jitter = (Math.random() * 600) - 300;
-        const delay = Math.max(100, Math.round(backoffBase + jitter));
-        console.log(`[queryCustomLLMAdaptive] Backoff delay: Waiting ${delay}ms before next attempt...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-    }
-  }
-
-  // All attempts failed! Trigger degraded mode if threshold reached
-  llmHealthState.consecutiveFailures++;
-  llmHealthState.totalFailures++;
-
-  if (llmHealthState.consecutiveFailures >= 3 && !llmHealthState.degradedMode) {
-    llmHealthState.degradedMode = true;
-    console.warn(`[queryCustomLLMAdaptive] ⚠️ LLM Circuit Breaker: 3 consecutive failures reached. Entering DEGRADED mode for subsequent requests!`);
-  }
-
-  throw lastError || new Error(`LLM Query failed after ${maxAttempts} adaptive attempts.`);
+function updateScannerActive() {
+  globalState.lastScannerActiveTime = Date.now();
 }
 
 /// 1. Endpoint to Parse Resume Raw Text or Document Files
 app.post('/api/resume/parse', async (req, res) => {
   try {
+    updateScannerActive();
     const { rawText, fileBase64, mimeType, llmConfig } = req.body;
     if ((!rawText || typeof rawText !== 'string' || rawText.trim() === '') && !fileBase64) {
       res.status(400).json({ error: 'Resume rawText or uploaded file is required.' });
@@ -316,1519 +154,10 @@ app.post('/api/resume/parse', async (req, res) => {
   }
 });
 
-/**
- * Checks if a URL structure corresponds to a specific job application page, rather than a generic root/career page.
- */
-function isSpecificJobPost(urlStr: string): boolean {
-  try {
-    const parsed = new URL(urlStr);
-    const hostname = parsed.hostname.toLowerCase();
-    const pathname = parsed.pathname.toLowerCase();
-    
-    // Known applicant tracking systems (ATS)
-    const isATS = 
-      hostname.includes('lever.co') || 
-      hostname.includes('greenhouse.io') || 
-      hostname.includes('myworkdayjobs.com') ||
-      hostname.includes('ashbyhq.com') ||
-      hostname.includes('smartrecruiters.com') ||
-      hostname.includes('bamboohr.com') ||
-      hostname.includes('recruitee.com') ||
-      hostname.includes('workable.com') ||
-      hostname.includes('jobvite.com');
-
-    const pathSegments = pathname.split('/').filter(Boolean);
-
-    if (isATS) {
-      // If it's just the company name root on the ATS board, it's not a job post
-      if (pathSegments.length <= 1) {
-        return false;
-      }
-      // Greenhouse specific: must contain /jobs/
-      if (hostname.includes('greenhouse.io') && !pathname.includes('/jobs/')) {
-        return false;
-      }
-      // Workday specific: must contain /job/
-      if (hostname.includes('myworkdayjobs.com') && !pathname.includes('/job/')) {
-        return false;
-      }
-      return true;
-    }
-    
-    // Specific LinkedIn job posting check
-    if (hostname.includes('linkedin.com') && pathname.includes('/jobs/view/')) {
-      return true;
-    }
-    
-    // Specific Indeed job posting check
-    if (hostname.includes('indeed.com') && (pathname.includes('/rc/clk') || pathname.includes('/viewjob'))) {
-      return true;
-    }
-
-    // Generic career portal checks - if path matches these exactly or is too simple, it's NOT a specific job post
-    const genericTerms = [
-      '/careers', '/careers/', '/career', '/career/', 
-      '/jobs', '/jobs/', '/job', '/job/', 
-      '/join', '/join/', '/join-us', '/join-us/',
-      '/work-at', '/work-at/', '/work-with-us', '/work-with-us/',
-      '/about/careers', '/about/jobs', '/hiring', '/hiring/',
-      '/about', '/about/', '/our-story', '/our-story/'
-    ];
-    
-    if (genericTerms.some(term => pathname === term)) {
-      return false;
-    }
-    
-    // If no path or just one shallow generic segment, it's not a specific job
-    if (pathSegments.length === 0) return false;
-    if (pathSegments.length === 1) {
-      const singleSeg = pathSegments[0];
-      const isLikelyGeneric = ['careers', 'jobs', 'career', 'job', 'hiring', 'about', 'join', 'portal', 'search'].includes(singleSeg);
-      if (isLikelyGeneric) return false;
-    }
-    
-    // Check if the URL has common job details patterns
-    const hasJobIndicators = 
-      /\d+/.test(pathname) || // contains numbers (often job IDs)
-      pathname.includes('/job/') ||
-      pathname.includes('/jobs/') ||
-      pathname.includes('/careers/') ||
-      pathname.includes('/vacancy/') ||
-      pathname.includes('/apply/') ||
-      pathname.includes('/details/') ||
-      pathname.includes('-eng-') || 
-      pathname.includes('-engineer-') ||
-      pathname.includes('-manager-') ||
-      pathSegments.some(seg => seg.length > 12); // long IDs/hashes
-
-    return hasJobIndicators;
-  } catch (_) {
-    return false;
-  }
-}
-
-/**
- * Verifies if a URL is reachable, follows redirects, and checks that it's a real job application page.
- */
-async function verifyJobUrl(url: string): Promise<{ isValid: boolean; resolvedUrl: string }> {
-  if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-    return { isValid: false, resolvedUrl: url };
-  }
-
-  // Pre-filter: Check if URL is structured as a specific job post rather than a general root/career page
-  const hasSpecificStructure = isSpecificJobPost(url);
-  if (!hasSpecificStructure) {
-    return { isValid: false, resolvedUrl: url };
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds timeout
-
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-      },
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    const status = response.status;
-    const finalUrl = response.url || url;
-    
-    // Re-check specific job post structure on the resolved final URL
-    const isFinalUrlSpecific = isSpecificJobPost(finalUrl);
-    if (!isFinalUrlSpecific) {
-      return { isValid: false, resolvedUrl: finalUrl };
-    }
-
-    // A status of 200/OK or redirects indicates reachable
-    const isPageReachable = response.ok || status === 301 || status === 302;
-    
-    // If the server blocks us (403, 429, etc.), we still consider it valid IF the URL structure is strongly a specific job post.
-    const isServerBlocking = status === 403 || status === 429 || status === 401;
-    
-    const isValid = isPageReachable || isServerBlocking;
-
-    return {
-      isValid,
-      resolvedUrl: finalUrl
-    };
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    console.warn(`URL validation failed for ${url}:`, err.message || err);
-    // If the network request failed (e.g. timeout, DNS resolution, fetch failed)
-    // but the URL structure is very clearly a specific job post (like Lever/Greenhouse with job IDs),
-    // we can still mark it as valid to prevent false negatives from bot-protection blocks.
-    const isHighlyLikelyJob = 
-      url.includes('lever.co') || 
-      url.includes('greenhouse.io') || 
-      url.includes('myworkdayjobs.com') ||
-      url.includes('ashbyhq.com');
-      
-    return { 
-      isValid: isHighlyLikelyJob, 
-      resolvedUrl: url 
-    };
-  }
-}
-
-// ============================================================
-// COMMUNITY JOB SOURCES — Zero auth, zero API key required
-// Greenhouse: boards-api.greenhouse.io/v1/boards/{slug}/jobs
-// Lever:      api.lever.co/v0/postings/{slug}?mode=json
-// RemoteOK:   remoteok.com/api
-// ============================================================
-
-const GREENHOUSE_SLUGS: readonly string[] = [
-  // Fintech & Payments
-  'stripe', 'plaid', 'brex', 'chime', 'affirm', 'robinhood', 'coinbase',
-  'mercury', 'deel', 'gusto', 'rippling', 'carta', 'moderntreasury', 'ramp',
-  // Consumer & Marketplace
-  'airbnb', 'doordash', 'lyft', 'pinterest', 'reddit', 'discord', 'shopify',
-  'squarespace', 'vimeo', 'dropbox', 'peloton', 'faire', 'flexport',
-  // SaaS & Productivity
-  'hubspot', 'zendesk', 'intercom', 'okta', 'twilio', 'pagerduty', 'asana',
-  'miro', 'loom', 'notion', 'airtable', 'zapier', 'postman', 'retool',
-  'webflow', 'lattice', 'superhuman', 'grammarly', 'lucid',
-  // Developer Tools & Infrastructure
-  'mongodb', 'elastic', 'hashicorp', 'datadoghq', 'amplitude', 'mixpanel',
-  'launchdarkly', 'fullstory', 'logrocket', 'contentful', 'algolia', 'heap',
-  'segment', 'vanta', 'drata', 'secureframe', 'wistia', 'workos',
-  // AI & ML
-  'anthropic', 'openai', 'cohere', 'scale',
-  // Other Tech & Fortune 500 Tech
-  'figma', 'benchling', 'checkr', 'gitlab', 'twitch', 'headspace', 'calm',
-  'duolingo', 'coursera', 'descript', 'gem', 'clipboard-health',
-  'uber', 'servicenow', 'amd', 'paloaltonetworks', 'splunk', 'qualcomm', 'zoom'
-];
-
-const LEVER_SLUGS: readonly string[] = [
-  // Big Tech Adjacent
-  'netflix', 'atlassian', 'cloudflare', 'fastly',
-  // Data & Analytics
-  'databricks', 'confluent', 'cockroachdb', 'dbtlabs', 'airbyte', 'fivetran',
-  'hightouch', 'prefect', 'dagster', 'hex',
-  // AI & ML
-  'huggingface', 'scale-ai', 'anduril',
-  // Dev Tools & Security
-  'snyk', 'temporal', 'replit', 'coda', 'chainguard',
-  // Design & Consumer & Fortune 500 tech
-  'canva', 'duolingo', 'coursera', 'palantir', 'snowflake', 'purestorage'
-];
-
-const ASHBY_SLUGS: readonly string[] = [
-  'linear', 'posthog', 'perplexity', 'vercel', 'clerk', 'supabase', 'resend',
-  'warp', 'modal', 'replicate', 'fly', 'anysphere', 'pinecone', 'copilot',
-  'dust', 'vantage', 'valtown', 'dub', 'railway', 'pydantic', 'langchain',
-  'chroma', 'midjourney', 'safebase', 'hume', 'runway', 'sentry'
-];
-
-interface WorkdayCompany {
-  name: string;
-  tenant: string;
-  site: string;
-  host?: string;
-}
-
-const WORKDAY_DIRECTORY: WorkdayCompany[] = [
-  { name: 'Nvidia', tenant: 'nvidia', site: 'NVIDIAExternalCareerSite', host: 'nvidia.wd5.myworkdayjobs.com' },
-  { name: 'Salesforce', tenant: 'salesforce', site: 'External_Career_Site', host: 'salesforce.wd12.myworkdayjobs.com' },
-  { name: 'Capital One', tenant: 'capitalone', site: 'Capital_One', host: 'capitalone.wd12.myworkdayjobs.com' },
-  { name: 'Adobe', tenant: 'adobe', site: 'externalcareers', host: 'adobe.wd10.myworkdayjobs.com' },
-  { name: 'Workday', tenant: 'workday', site: 'Workday_Careers', host: 'workday.wd1.myworkdayjobs.com' },
-  { name: 'Dell', tenant: 'dell', site: 'External', host: 'dell.wd1.myworkdayjobs.com' },
-  { name: 'Autodesk', tenant: 'autodesk', site: 'Ext', host: 'autodesk.wd1.myworkdayjobs.com' },
-  { name: 'Walmart', tenant: 'walmart', site: 'Walmart_Careers', host: 'walmart.wd1.myworkdayjobs.com' },
-  { name: 'Target', tenant: 'target', site: 'targetcareers', host: 'target.wd5.myworkdayjobs.com' },
-  { name: 'Intuit', tenant: 'intuit', site: 'External', host: 'intuit.wd5.myworkdayjobs.com' },
-  { name: 'Intel', tenant: 'intel', site: 'External', host: 'intel.wd1.myworkdayjobs.com' },
-  { name: 'CrowdStrike', tenant: 'crowdstrike', site: 'crowdstrike', host: 'crowdstrike.wd5.myworkdayjobs.com' },
-  { name: 'Okta', tenant: 'okta', site: 'External', host: 'okta.wd1.myworkdayjobs.com' },
-  { name: 'PayPal', tenant: 'paypal', site: 'jobs', host: 'paypal.wd1.myworkdayjobs.com' },
-  { name: 'Block', tenant: 'block', site: 'Careers', host: 'block.wd5.myworkdayjobs.com' },
-  { name: 'Broadcom', tenant: 'broadcom', site: 'External', host: 'broadcom.wd1.myworkdayjobs.com' },
-  { name: 'ServiceNow', tenant: 'servicenow', site: 'ServiceNow_Careers', host: 'servicenow.wd1.myworkdayjobs.com' },
-  { name: 'HP', tenant: 'hp', site: 'ExternalCareerSite', host: 'hp.wd5.myworkdayjobs.com' },
-  { name: 'Splunk', tenant: 'splunk', site: 'Splunk_External_Careers', host: 'splunk.wd4.myworkdayjobs.com' },
-  { name: 'Palo Alto Networks', tenant: 'paloaltonetworks', site: 'Palo_Alto_Networks_External_Careers', host: 'paloaltonetworks.wd1.myworkdayjobs.com' }
-];
-
-interface SmartRecruitersCompany {
-  name: string;
-  slug: string;
-}
-
-const SMARTRECRUITERS_DIRECTORY: SmartRecruitersCompany[] = [
-  { name: 'Visa', slug: 'visa' },
-  { name: 'IKEA', slug: 'ikea' },
-  { name: 'Bosch', slug: 'bosch' },
-  { name: 'Equinix', slug: 'equinix' }
-];
-
-// Endpoint templates (can be updated dynamically via remote registry)
-let WORKDAY_SEARCH_TEMPLATE = 'https://{tenant}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs';
-let WORKDAY_DETAILS_TEMPLATE = 'https://{tenant}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/job/{jobId}';
-let SMARTRECRUITERS_POSTINGS_TEMPLATE = 'https://api.smartrecruiters.com/v1/companies/{slug}/postings';
-let SMARTRECRUITERS_DETAILS_TEMPLATE = 'https://api.smartrecruiters.com/v1/companies/{slug}/postings/{id}';
-
-// Weekly Remote Slugs Updates Registry caching variables
-let lastRegistryFetchTime = 0;
-let cachedGreenhouseSlugs: string[] = [...GREENHOUSE_SLUGS];
-let cachedLeverSlugs: string[] = [...LEVER_SLUGS];
-let cachedAshbySlugs: string[] = [...ASHBY_SLUGS];
-let cachedWorkdayDirectory: WorkdayCompany[] = [...WORKDAY_DIRECTORY];
-let cachedSmartRecruitersDirectory: SmartRecruitersCompany[] = [...SMARTRECRUITERS_DIRECTORY];
-
-async function updateCompanyDirectoriesFromRegistry() {
-  const now = Date.now();
-  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  
-  if (now - lastRegistryFetchTime < ONE_WEEK_MS && lastRegistryFetchTime !== 0) {
-    return; // Use memory cache, last updated within a week
-  }
-  
-  console.log('[Registry] Checking for company directory updates from remote registry...');
-  try {
-    const response = await fetch('https://raw.githubusercontent.com/Servation/job-search-agent-slugs/main/slugs.json', {
-      headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (data) {
-        if (Array.isArray(data.greenhouse)) {
-          cachedGreenhouseSlugs = data.greenhouse;
-          console.log(`[Registry] Updated Greenhouse slugs: ${cachedGreenhouseSlugs.length} entries.`);
-        }
-        if (Array.isArray(data.lever)) {
-          cachedLeverSlugs = data.lever;
-          console.log(`[Registry] Updated Lever slugs: ${cachedLeverSlugs.length} entries.`);
-        }
-        if (Array.isArray(data.ashby)) {
-          cachedAshbySlugs = data.ashby;
-          console.log(`[Registry] Updated Ashby slugs: ${cachedAshbySlugs.length} entries.`);
-        }
-        if (Array.isArray(data.workday)) {
-          cachedWorkdayDirectory = data.workday;
-          console.log(`[Registry] Updated Workday directory: ${cachedWorkdayDirectory.length} entries.`);
-        }
-        if (Array.isArray(data.smartrecruiters)) {
-          cachedSmartRecruitersDirectory = data.smartrecruiters;
-          console.log(`[Registry] Updated SmartRecruiters directory: ${cachedSmartRecruitersDirectory.length} entries.`);
-        }
-        if (data.templates) {
-          if (data.templates.workdaySearch) WORKDAY_SEARCH_TEMPLATE = data.templates.workdaySearch;
-          if (data.templates.workdayDetails) WORKDAY_DETAILS_TEMPLATE = data.templates.workdayDetails;
-          if (data.templates.smartrecruitersPostings) SMARTRECRUITERS_POSTINGS_TEMPLATE = data.templates.smartrecruitersPostings;
-          if (data.templates.smartrecruitersDetails) SMARTRECRUITERS_DETAILS_TEMPLATE = data.templates.smartrecruitersDetails;
-          console.log('[Registry] Successfully updated API endpoint templates.');
-        }
-        lastRegistryFetchTime = now;
-        console.log('[Registry] Successfully updated company directories from remote registry.');
-        return;
-      }
-    }
-  } catch (err: any) {
-    console.warn('[Registry] Remote registry update failed (falling back to static local lists):', err.message);
-  }
-  // Even on failure, set the fetch timestamp to prevent slamming the request on every subsequent scan in the same run
-  lastRegistryFetchTime = now;
-}
-
-async function checkSourceHealth(
-  searchLocation: string,
-  prefersRemote: boolean
-): Promise<{
-  greenhouse: boolean;
-  lever: boolean;
-  ashby: boolean;
-  workday: boolean;
-  smartrecruiters: boolean;
-  warnings: string[];
-}> {
-  const warnings: string[] = [];
-  const status = { greenhouse: true, lever: true, ashby: true, workday: true, smartrecruiters: true };
-
-  // 1. Test Greenhouse (via stripe)
-  try {
-    const res = await fetch('https://boards-api.greenhouse.io/v1/boards/stripe/jobs', {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(3000)
-    });
-    if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
-  } catch (err: any) {
-    status.greenhouse = false;
-    warnings.push(`[Health Check Warning] Greenhouse API is degraded/offline (${err.message}). Sourcing from Greenhouse skipped.`);
-  }
-
-  // 2. Test Lever (via netflix)
-  try {
-    const res = await fetch('https://api.lever.co/v0/postings/netflix?mode=json', {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(3000)
-    });
-    if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
-  } catch (err: any) {
-    status.lever = false;
-    warnings.push(`[Health Check Warning] Lever API is degraded/offline (${err.message}). Sourcing from Lever skipped.`);
-  }
-
-  // 3. Test Ashby (via linear)
-  try {
-    const res = await fetch('https://api.ashbyhq.com/posting-api/job-board/linear', {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      signal: AbortSignal.timeout(3000)
-    });
-    if (!res.ok) throw new Error(`HTTP Status ${res.status}`);
-  } catch (err: any) {
-    status.ashby = false;
-    warnings.push(`[Health Check Warning] Ashby API is degraded/offline (${err.message}). Sourcing from Ashby skipped.`);
-  }
-
-  // 3. Test Workday (via Nvidia and Salesforce search)
-  let workdayHealthy = false;
-  let workdayError = '';
-  try {
-    const urlSalesforce = 'https://salesforce.wd12.myworkdayjobs.com/wday/cxs/salesforce/External_Career_Site/jobs';
-    const urlNvidia = 'https://nvidia.wd5.myworkdayjobs.com/wday/cxs/nvidia/NVIDIAExternalCareerSite/jobs';
-    
-    const [resSf, resNv] = await Promise.allSettled([
-      fetch(urlSalesforce, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Origin': 'https://salesforce.wd12.myworkdayjobs.com',
-          'Referer': 'https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/'
-        },
-        body: JSON.stringify({ searchText: 'health-ping', limit: 1, offset: 0, appliedFacets: {} }),
-        signal: AbortSignal.timeout(4000)
-      }),
-      fetch(urlNvidia, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Origin': 'https://nvidia.wd5.myworkdayjobs.com',
-          'Referer': 'https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/'
-        },
-        body: JSON.stringify({ searchText: 'health-ping', limit: 1, offset: 0, appliedFacets: {} }),
-        signal: AbortSignal.timeout(4000)
-      })
-    ]);
-
-    const isSfOk = resSf.status === 'fulfilled' && resSf.value.ok;
-    const isNvOk = resNv.status === 'fulfilled' && resNv.value.ok;
-
-    if (isSfOk || isNvOk) {
-      workdayHealthy = true;
-    } else {
-      const sfErr = resSf.status === 'rejected' ? resSf.reason.message : `HTTP ${resSf.value.status}`;
-      const nvErr = resNv.status === 'rejected' ? resNv.reason.message : `HTTP ${resNv.value.status}`;
-      workdayError = `Nvidia: ${nvErr}, Salesforce: ${sfErr}`;
-    }
-  } catch (err: any) {
-    workdayError = err.message;
-  }
-
-  if (!workdayHealthy) {
-    status.workday = false;
-    warnings.push(`[Health Check Warning] Workday API is degraded or offline (${workdayError}). Sourcing from Workday skipped.`);
-  }
-
-  // 4. Test SmartRecruiters (via Visa and Equinix postings)
-  let srHealthy = false;
-  let srError = '';
-  try {
-    const urlVisa = SMARTRECRUITERS_POSTINGS_TEMPLATE.replace(/{slug}/g, 'visa');
-    const urlEquinix = SMARTRECRUITERS_POSTINGS_TEMPLATE.replace(/{slug}/g, 'equinix');
-    
-    const [resVisa, resEquinix] = await Promise.allSettled([
-      fetch(urlVisa, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(3000) }),
-      fetch(urlEquinix, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(3000) })
-    ]);
-
-    const isVisaOk = resVisa.status === 'fulfilled' && resVisa.value.ok;
-    const isEquinixOk = resEquinix.status === 'fulfilled' && resEquinix.value.ok;
-
-    if (isVisaOk || isEquinixOk) {
-      srHealthy = true;
-    } else {
-      const visaErr = resVisa.status === 'rejected' ? resVisa.reason.message : `HTTP ${resVisa.value.status}`;
-      const eqErr = resEquinix.status === 'rejected' ? resEquinix.reason.message : `HTTP ${resEquinix.value.status}`;
-      srError = `Visa: ${visaErr}, Equinix: ${eqErr}`;
-    }
-  } catch (err: any) {
-    srError = err.message;
-  }
-
-  if (!srHealthy) {
-    status.smartrecruiters = false;
-    warnings.push(`[Health Check Warning] SmartRecruiters API is degraded or offline (${srError}). Sourcing from SmartRecruiters skipped.`);
-  }
-
-  return { ...status, warnings };
-}
-
-const SLUG_DISPLAY_NAMES: Record<string, string> = {
-  'datadoghq': 'Datadog', 'scale-ai': 'Scale AI', 'scaleai': 'Scale AI',
-  'dbtlabs': 'dbt Labs', 'huggingface': 'Hugging Face',
-  'cockroachdb': 'CockroachDB', 'launchdarkly': 'LaunchDarkly',
-  'logrocket': 'LogRocket', 'fullstory': 'FullStory',
-  'moderntreasury': 'Modern Treasury', 'clipboard-health': 'Clipboard Health',
-  'pagerduty': 'PagerDuty', 'workos': 'WorkOS', 'airbyte': 'Airbyte',
-  'chainguard': 'Chainguard', 'fivetran': 'Fivetran', 'hightouch': 'Hightouch',
-  'posthog': 'PostHog', 'supabase': 'Supabase', 'pinecone': 'Pinecone',
-  'safebase': 'SafeBase', 'valtown': 'Val Town', 'langchain': 'LangChain',
-  'copilot': 'Copilot', 'perplexity': 'Perplexity', 'replicate': 'Replicate',
-  'anysphere': 'Cursor', 'midjourney': 'Midjourney', 'fly': 'Fly.io',
-  'clerk': 'Clerk', 'resend': 'Resend', 'warp': 'Warp', 'modal': 'Modal',
-};
-
-function communitySlugToName(slug: string): string {
-  return SLUG_DISPLAY_NAMES[slug] ??
-    slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-}
-
-function stripHtmlCommunity(html: string): string {
-  if (!html) return '';
-  // 1. Decode entities first so encoded tags like &lt;div&gt; turn into <div>
-  let decoded = html
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ');
-
-  // 2. Strip scripts, styles, and html tags
-  decoded = decoded
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ');
-
-  return decoded.replace(/\s+/g, ' ').trim();
-}
-
-const ROLE_TITLE_BLOCKLIST = [
-  'sales', 'marketing', 'account executive', 'recruiter', 'hr', 'talent acquisition',
-  'legal', 'finance', 'operations', 'customer success', 'customer support',
-  'account manager', 'sales engineer', 'product manager', 'project manager',
-  'business development', 'business analyst', 'office manager', 'receptionist',
-  'administrative', 'executive assistant', 'internship', 'intern', 'fellowship',
-  'mechanical', 'civil', 'chemical', 'electrical', 'structural', 'construction',
-  'nursing', 'medical', 'physician', 'doctor', 'teacher', 'instructor', 'retail'
-];
-
-function isBlocklistedRole(title: string, targetRoles: string[], yearsOfExperience: number = 0): boolean {
-  const lowerTitle = title.toLowerCase();
-  const lowerTargets = targetRoles.map(r => r.toLowerCase());
-
-  // Check title experience mismatch based on years of experience
-  if (yearsOfExperience > 0) {
-    // If candidate has less than 5 years of experience, block Staff, Principal, Director, VP, Manager, Architect roles
-    if (yearsOfExperience < 5) {
-      const seniorBlocked = ['staff', 'principal', 'director', 'vp', 'vice president', 'manager', 'architect'];
-      const isSeniorRole = seniorBlocked.some(term => {
-        const regex = new RegExp(`\\b${term}\\b`, 'i');
-        return regex.test(lowerTitle);
-      });
-      if (isSeniorRole) {
-        return true; // Strictly block, no exceptions
-      }
-    }
-
-    // If candidate has less than 4 years of experience, block Lead roles
-    if (yearsOfExperience < 4) {
-      const regex = /\blead\b/i;
-      if (regex.test(lowerTitle)) {
-        return true; // Strictly block, no exceptions
-      }
-    }
-
-    // If candidate has less than 3 years of experience, also block Senior / Sr roles
-    if (yearsOfExperience < 3) {
-      const regex = /\bsenior\b|\bsr\b/i;
-      if (regex.test(lowerTitle)) {
-        return true; // Strictly block, no exceptions
-      }
-    }
-  }
-  
-  return ROLE_TITLE_BLOCKLIST.some(blocked => {
-    if (lowerTitle.includes(blocked)) {
-      const userWantsIt = lowerTargets.some(target => target.includes(blocked));
-      if (!userWantsIt) {
-        return true;
-      }
-    }
-    return false;
-  });
-}
-
-function exceedsExperienceRequirement(description: string, yearsOfExperience: number): boolean {
-  if (!yearsOfExperience || yearsOfExperience <= 0) return false;
-
-  const text = description.toLowerCase();
-  const maxAllowed = yearsOfExperience + 2;
-
-  // Regex patterns to capture years of experience requirements
-  const regexes = [
-    /\b(\d+)\s*\+?\s*yrs?\b/g,
-    /\b(\d+)\s*\+?\s*years?\b/g,
-    /\b(\d+)\s*-\s*(\d+)\s*years?\b/g,
-    /\b(\d+)\s*-\s*(\d+)\s*yrs?\b/g,
-    /\b(\d+)\s*to\s*(\d+)\s*years?\b/g,
-    /\b(\d+)\s*to\s*(\d+)\s*yrs?\b/g,
-  ];
-
-  for (const regex of regexes) {
-    let match;
-    regex.lastIndex = 0;
-    while ((match = regex.exec(text)) !== null) {
-      const yrs = parseInt(match[1], 10);
-      if (!isNaN(yrs)) {
-        // Find if this is experience-related context
-        const matchIndex = match.index;
-        const start = Math.max(0, matchIndex - 60);
-        const end = Math.min(text.length, matchIndex + match[0].length + 60);
-        const context = text.slice(start, end);
-        
-        const isExperienceRelated = /experience|require|minimum|at least|work|industry|background|professional|designing|building|developing/i.test(context);
-        const isExclusionPhrase = /team has|we have|company has|our developers have|our engineers have|over\s+\d+\s+years\s+of\s+(combined|total)/i.test(context);
-
-        if (isExperienceRelated && !isExclusionPhrase && yrs > maxAllowed) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-function detectUSState(locStr: string): string | null {
-  const stateNames: { [key: string]: string } = {
-    'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR', 'california': 'CA',
-    'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE', 'florida': 'FL', 'georgia': 'GA',
-    'hawaii': 'HI', 'idaho': 'ID', 'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA',
-    'kansas': 'KS', 'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
-    'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS',
-    'missouri': 'MO', 'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV', 'new hampshire': 'NH',
-    'new jersey': 'NJ', 'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC',
-    'north dakota': 'ND', 'ohio': 'OH', 'oklahoma': 'OK', 'oregon': 'OR', 'pennsylvania': 'PA',
-    'rhode island': 'RI', 'south carolina': 'SC', 'south dakota': 'SD', 'tennessee': 'TN',
-    'texas': 'TX', 'utah': 'UT', 'vermont': 'VT', 'virginia': 'VA', 'washington': 'WA',
-    'west virginia': 'WV', 'wisconsin': 'WI', 'wyoming': 'WY'
-  };
-
-  const lowerStr = locStr.toLowerCase();
-  for (const [name, abbrev] of Object.entries(stateNames)) {
-    const regex = new RegExp(`\\b${name}\\b`, 'i');
-    if (regex.test(lowerStr)) {
-      return abbrev;
-    }
-  }
-
-  for (const abbrev of Object.values(stateNames)) {
-    const regex = new RegExp(`\\b${abbrev}\\b`);
-    if (regex.test(locStr)) {
-      return abbrev;
-    }
-  }
-
-  for (const abbrev of Object.values(stateNames)) {
-    const regex = new RegExp(`,\\s*${abbrev.toLowerCase()}\\b`);
-    if (regex.test(lowerStr)) {
-      return abbrev;
-    }
-  }
-
-  return null;
-}
-
-function normalizeLocation(locStr: string): string {
-  if (!locStr) return '';
-  let normalized = locStr.toLowerCase().trim();
-
-  // Replace common country abbreviations
-  normalized = normalized.replace(/\b(us|usa)\b/g, 'united states');
-  normalized = normalized.replace(/\buk\b/g, 'united kingdom');
-
-  const stateAbbrevToName: { [key: string]: string } = {
-    'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas', 'ca': 'california',
-    'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware', 'fl': 'florida', 'ga': 'georgia',
-    'hi': 'hawaii', 'id': 'idaho', 'il': 'illinois', 'in': 'indiana', 'ia': 'iowa',
-    'ks': 'kansas', 'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
-    'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
-    'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada', 'nh': 'new hampshire',
-    'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york', 'nc': 'north carolina',
-    'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma', 'or': 'oregon', 'pa': 'pennsylvania',
-    'ri': 'rhode island', 'sc': 'south carolina', 'sd': 'south dakota', 'tn': 'tennessee',
-    'tx': 'texas', 'ut': 'utah', 'vt': 'vermont', 'va': 'virginia', 'wa': 'washington',
-    'wv': 'west virginia', 'wi': 'wisconsin', 'wy': 'wyoming'
-  };
-
-  for (const [abbrev, name] of Object.entries(stateAbbrevToName)) {
-    // 1. Match preceded by comma, e.g. ", ca"
-    const commaRegex = new RegExp(`,\\s*\\b${abbrev}\\b`, 'g');
-    normalized = normalized.replace(commaRegex, `, ${name}`);
-
-    // 2. Match at the very end of string, e.g. "portland or" -> "portland oregon"
-    const endRegex = new RegExp(`\\b${abbrev}\\b$`, 'g');
-    normalized = normalized.replace(endRegex, name);
-  }
-
-  return normalized;
-}
-
-function matchesLocation(jobLocation: string, searchLocation: string, prefersRemote: boolean): boolean {
-  const normJob = normalizeLocation(jobLocation);
-  if (!searchLocation) return true;
-  const normSearch = normalizeLocation(searchLocation);
-
-  const isUS = (s: string) => {
-    return /\b(united states|america)\b/i.test(s);
-  };
-
-  const isSearchUS = isUS(normSearch) || !!detectUSState(normSearch);
-  const isGenericUSSearch = ['united states', 'us', 'usa', 'america'].includes(normSearch.trim());
-
-  if (isSearchUS) {
-    const nonUSCountries = [
-      'india', 'germany', 'london', 'uk', 'united kingdom', 'canada', 'brazil', 
-      'poland', 'romania', 'france', 'spain', 'australia', 'singapore', 'japan', 
-      'netherlands', 'sweden', 'switzerland', 'ireland', 'china', 'berlin', 'munich', 
-      'bangalore', 'pune', 'delhi', 'mumbai', 'hyderabad', 'toronto', 'vancouver', 'madrid', 'barcelona'
-    ];
-    
-    const mentionsNonUS = nonUSCountries.some(country => {
-      const regex = new RegExp(`\\b${country}\\b`, 'i');
-      return regex.test(normJob);
-    });
-
-    if (mentionsNonUS) {
-      const mentionsUS = isUS(normJob) || !!detectUSState(normJob);
-      if (!mentionsUS) {
-        return false;
-      }
-    }
-  }
-
-  const searchState = detectUSState(normSearch);
-  if (searchState) {
-    const jobState = detectUSState(normJob);
-    if (jobState && jobState !== searchState) {
-      return false;
-    }
-  }
-
-  if (prefersRemote && normJob.includes('remote')) {
-    return true;
-  }
-
-  if (isGenericUSSearch && isUS(normJob)) {
-    return true;
-  }
-
-  if (!normJob.includes(normSearch) && !normJob.includes('remote')) {
-    return false;
-  }
-
-  return true;
-}
-
-function extractRoleKeywords(targetRoles: string[]): string[] {
-  const stop = new Set(['and', 'the', 'for', 'with', 'our', 'team', 'role', 'you', 'will', 'lead']);
-  return [...new Set(
-    targetRoles.flatMap(r =>
-      r.toLowerCase().split(/[\s,\/\-\(\)]+/).filter(w => w.length >= 4 && !stop.has(w))
-    )
-  )];
-}
-
-function matchesKeywords(title: string, keywords: string[]): boolean {
-  if (keywords.length === 0) return true;
-  const text = title.toLowerCase();
-  return keywords.some(kw => text.includes(kw));
-}
-
-interface RawCommunityJob {
-  title: string; company: string; location: string; description: string;
-  url: string; applyUrl?: string; postedAt: string; type: string;
-  salary?: string; isRemote: boolean; source: 'greenhouse' | 'lever' | 'workday' | 'smartrecruiters' | 'ashby' | 'remoteok' | 'websearch' | 'remotive' | 'hackernews';
-}
-
-async function fetchGreenhouseJobs(
-  slugs: readonly string[], 
-  keywords: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const results = await Promise.allSettled(
-    slugs.map(async (slug): Promise<RawCommunityJob[]> => {
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 8000);
-      try {
-        const res = await fetch(
-          `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`,
-          { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } }
-        );
-        clearTimeout(tid);
-        if (!res.ok) return [];
-        const data = await res.json();
-        const name = communitySlugToName(slug);
-        return ((data.jobs as any[]) || [])
-          .filter(j => {
-            const title = j.title || '';
-            const locName = j.location?.name || '';
-            return matchesKeywords(title, keywords) && 
-                   !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(j.content || '', yearsOfExperience) &&
-                   matchesLocation(locName, searchLocation, prefersRemote);
-          })
-          .map(j => ({
-            title: j.title || 'Unknown Role',
-            company: name,
-            location: j.location?.name || 'Not specified',
-            description: stripHtmlCommunity(j.content || '').slice(0, 1800),
-            url: j.absolute_url || '',
-            postedAt: j.updated_at || new Date().toISOString(),
-            type: 'Full-Time',
-            isRemote: (j.location?.name || '').toLowerCase().includes('remote'),
-            source: 'greenhouse' as const,
-          }));
-      } catch { clearTimeout(tid); return []; }
-    })
-  );
-  return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-}
-
-async function fetchLeverJobs(
-  slugs: readonly string[], 
-  keywords: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const results = await Promise.allSettled(
-    slugs.map(async (slug): Promise<RawCommunityJob[]> => {
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 8000);
-      try {
-        const res = await fetch(
-          `https://api.lever.co/v0/postings/${slug}?mode=json`,
-          { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } }
-        );
-        clearTimeout(tid);
-        if (!res.ok) return [];
-        const jobs = await res.json();
-        if (!Array.isArray(jobs)) return [];
-        const name = communitySlugToName(slug);
-        return jobs
-          .filter(j => {
-            const title = j.text || '';
-            const loc = j.categories?.location || j.location || '';
-            return matchesKeywords(title, keywords) && 
-                   !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
-                   matchesLocation(loc, searchLocation, prefersRemote);
-          })
-          .map(j => {
-            const sr = j.salaryRange;
-            const salary = sr?.min && sr?.max
-              ? `${sr.currency || 'USD'} ${Math.round(sr.min / 1000)}k–${Math.round(sr.max / 1000)}k`
-              : undefined;
-            const loc = j.categories?.location || j.location || '';
-            return {
-              title: j.text || 'Unknown Role',
-              company: name,
-              location: loc || 'Not specified',
-              description: (j.descriptionPlain || stripHtmlCommunity(j.description || '')).slice(0, 1800),
-              url: j.hostedUrl || j.applyUrl || '',
-              applyUrl: j.applyUrl,
-              postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : new Date().toISOString(),
-              type: j.categories?.commitment || 'Full-Time',
-              salary,
-              isRemote: j.workplaceType === 'remote' || loc.toLowerCase().includes('remote'),
-              source: 'lever' as const,
-            };
-          });
-      } catch { clearTimeout(tid); return []; }
-    })
-  );
-  return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-}
-
-async function fetchAshbyJobs(
-  slugs: readonly string[],
-  keywords: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const results = await Promise.allSettled(
-    slugs.map(async (slug): Promise<RawCommunityJob[]> => {
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 8000); // 8 seconds timeout
-      try {
-        const res = await fetch(
-          `https://api.ashbyhq.com/posting-api/job-board/${slug}?includeCompensation=true`,
-          { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } }
-        );
-        clearTimeout(tid);
-        if (!res.ok) return [];
-        const data = await res.json();
-        const name = communitySlugToName(slug);
-        
-        const jobsList = (data.jobs as any[]) || [];
-        return jobsList
-          .filter(j => {
-            if (!j.isListed) return false;
-            const title = j.title || '';
-            const locName = j.location || '';
-            const desc = j.descriptionPlain || j.descriptionHtml || '';
-            return matchesKeywords(title, keywords) &&
-                   !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(desc, yearsOfExperience) &&
-                   matchesLocation(locName, searchLocation, prefersRemote);
-          })
-          .map(j => {
-            const isRemote = j.workplaceType === 'Remote' || (j.location || '').toLowerCase().includes('remote');
-            const desc = (j.descriptionPlain || (j.descriptionHtml ? stripHtmlCommunity(j.descriptionHtml) : '')).slice(0, 1800);
-            
-            let salaryStr = 'Not specified';
-            if (j.compensation) {
-              if (j.compensation.summary) {
-                salaryStr = j.compensation.summary;
-              } else if (j.compensation.minValue && j.compensation.maxValue) {
-                const cur = j.compensation.currencyCode || 'USD';
-                salaryStr = `${cur} ${Math.round(j.compensation.minValue / 1000)}k–${Math.round(j.compensation.maxValue / 1000)}k`;
-              }
-            }
-
-            return {
-              title: j.title || 'Unknown Role',
-              company: name,
-              location: j.location || 'Remote',
-              description: desc,
-              url: `https://jobs.ashbyhq.com/${slug}/${j.id}`,
-              postedAt: new Date().toISOString(),
-              type: j.employmentType === 'Contract' ? 'Contract' : (j.employmentType === 'PartTime' ? 'Part-Time' : 'Full-Time'),
-              isRemote,
-              salary: salaryStr,
-              source: 'ashby' as const,
-            };
-          });
-      } catch { clearTimeout(tid); return []; }
-    })
-  );
-  return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-}
-
-async function fetchWorkdayJobs(
-  companies: WorkdayCompany[],
-  keywords: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const results = await Promise.allSettled(
-    companies.map(async (company): Promise<RawCommunityJob[]> => {
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 10000); // 10s timeout per company
-      const host = company.host || `${company.tenant}.myworkdayjobs.com`;
-      
-      try {
-        const queryText = targetRoles.length > 0 ? targetRoles[0] : 'Software Engineer';
-        const searchUrl = `https://${host}/wday/cxs/${company.tenant}/${company.site}/jobs`;
-        
-        const response = await fetch(searchUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Origin': `https://${host}`,
-            'Referer': `https://${host}/en-US/${company.site}/`
-          },
-          body: JSON.stringify({
-            searchText: queryText,
-            limit: 20,
-            offset: 0,
-            appliedFacets: {}
-          }),
-          signal: ctrl.signal
-        });
-        
-        clearTimeout(tid);
-        
-        if (!response.ok) {
-          console.warn(`[Workday] Fetch failed for ${company.name} (${host}): HTTP ${response.status}`);
-          return [];
-        }
-        
-        const data = await response.json();
-        const postings = (data.jobPostings || []) as any[];
-        
-        const matchingPostings = postings.filter(p => {
-          const title = p.title || '';
-          return matchesKeywords(title, keywords) && !isBlocklistedRole(title, targetRoles, yearsOfExperience);
-        });
-        
-        // Fetch details for matching postings to get descriptions
-        const detailedJobs = await Promise.all(
-          matchingPostings.map(async (p): Promise<RawCommunityJob | null> => {
-            const pathParts = (p.externalPath || '').split('/');
-            const jobId = pathParts[pathParts.length - 1];
-            if (!jobId) return null;
-            
-            const detailUrl = `https://${host}/wday/cxs/${company.tenant}/${company.site}/job/${jobId}`;
-            
-            const dCtrl = new AbortController();
-            const dTid = setTimeout(() => dCtrl.abort(), 5000);
-            
-            try {
-              const dRes = await fetch(detailUrl, {
-                headers: { 
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  'Origin': `https://${host}`,
-                  'Referer': `https://${host}/en-US/${company.site}/`
-                },
-                signal: dCtrl.signal
-              });
-              clearTimeout(dTid);
-              
-              if (dRes.ok) {
-                const dData = await dRes.json();
-                const jobDescHtml = dData.jobPosting?.jobDescription || '';
-                const desc = stripHtmlCommunity(jobDescHtml).slice(0, 1800);
-                
-                const loc = p.locationsText || 'Specified on site';
-                if (!matchesLocation(loc, searchLocation, prefersRemote) || exceedsExperienceRequirement(jobDescHtml, yearsOfExperience)) {
-                  return null;
-                }
-                
-                return {
-                  title: p.title,
-                  company: company.name,
-                  location: loc,
-                  description: desc,
-                  url: `https://${host}/en-US/${company.site}${p.externalPath}`,
-                  postedAt: p.postedOn || new Date().toISOString(),
-                  type: 'Full-Time',
-                  isRemote: loc.toLowerCase().includes('remote'),
-                  source: 'workday' as const
-                };
-              }
-            } catch (err: any) {
-              clearTimeout(dTid);
-              console.warn(`[Workday] Details failed for ${company.name} job ${jobId}:`, err.message);
-            }
-            
-            // Fallback if details fetch failed (use summary)
-            const loc = p.locationsText || 'Specified on site';
-            if (!matchesLocation(loc, searchLocation, prefersRemote)) {
-              return null;
-            }
-            return {
-              title: p.title,
-              company: company.name,
-              location: loc,
-              description: 'Position details available on application site.',
-              url: `https://${host}/en-US/${company.site}${p.externalPath}`,
-              postedAt: p.postedOn || new Date().toISOString(),
-              type: 'Full-Time',
-              isRemote: loc.toLowerCase().includes('remote'),
-              source: 'workday' as const
-            };
-          })
-        );
-        
-        return detailedJobs.filter(Boolean) as RawCommunityJob[];
-      } catch (err: any) {
-        clearTimeout(tid);
-        console.warn(`[Workday] Failed fetching ${company.name} jobs:`, err.message);
-        return [];
-      }
-    })
-  );
-  
-  return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-}
-
-async function fetchSmartRecruitersJobs(
-  companies: SmartRecruitersCompany[],
-  keywords: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const results = await Promise.allSettled(
-    companies.map(async (company): Promise<RawCommunityJob[]> => {
-      const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 8000);
-      
-      try {
-        const searchUrl = SMARTRECRUITERS_POSTINGS_TEMPLATE.replace(/{slug}/g, company.slug);
-        const response = await fetch(searchUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-          signal: ctrl.signal
-        });
-        
-        clearTimeout(tid);
-        
-        if (!response.ok) {
-          console.warn(`[SmartRecruiters] Fetch failed for ${company.name}: HTTP ${response.status}`);
-          return [];
-        }
-        
-        const data = await response.json();
-        const postings = (data.content || []) as any[];
-        
-        const matchingPostings = postings.filter(p => {
-          const title = p.name || '';
-          return matchesKeywords(title, keywords) && !isBlocklistedRole(title, targetRoles, yearsOfExperience);
-        });
-        
-        const detailedJobs = await Promise.all(
-          matchingPostings.map(async (p): Promise<RawCommunityJob | null> => {
-            const detailUrl = SMARTRECRUITERS_DETAILS_TEMPLATE.replace(/{slug}/g, company.slug).replace(/{id}/g, p.id);
-            const dCtrl = new AbortController();
-            const dTid = setTimeout(() => dCtrl.abort(), 5000);
-            
-            try {
-              const dRes = await fetch(detailUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
-                signal: dCtrl.signal
-              });
-              clearTimeout(dTid);
-              
-              if (dRes.ok) {
-                const dData = await dRes.json();
-                const jobDescHtml = [
-                  dData.jobAd?.sections?.jobDescription?.text || '',
-                  dData.jobAd?.sections?.qualifications?.text || '',
-                  dData.jobAd?.sections?.additionalInformation?.text || ''
-                ].filter(Boolean).join('\n\n');
-                const desc = stripHtmlCommunity(jobDescHtml).slice(0, 1800);
-                
-                const city = dData.location?.city || '';
-                const region = dData.location?.region || '';
-                const country = dData.location?.country || '';
-                const loc = [city, region, country].filter(Boolean).join(', ') || 'Remote';
-                
-                if (!matchesLocation(loc, searchLocation, prefersRemote) || exceedsExperienceRequirement(jobDescHtml, yearsOfExperience)) {
-                  return null;
-                }
-                
-                return {
-                  title: p.name,
-                  company: company.name,
-                  location: loc,
-                  description: desc,
-                  url: `https://careers.smartrecruiters.com/${company.slug}/${p.id}`,
-                  postedAt: p.releasedDate || new Date().toISOString(),
-                  type: 'Full-Time',
-                  isRemote: loc.toLowerCase().includes('remote') || dData.location?.remote === true,
-                  source: 'smartrecruiters' as const
-                };
-              }
-            } catch (err: any) {
-              clearTimeout(dTid);
-              console.warn(`[SmartRecruiters] Details failed for ${company.name} job ${p.id}:`, err.message);
-            }
-            
-            const loc = [p.location?.city, p.location?.region, p.location?.country].filter(Boolean).join(', ') || 'Remote';
-            if (!matchesLocation(loc, searchLocation, prefersRemote)) {
-              return null;
-            }
-            return {
-              title: p.name,
-              company: company.name,
-              location: loc,
-              description: 'Position details available on application site.',
-              url: `https://careers.smartrecruiters.com/${company.slug}/${p.id}`,
-              postedAt: p.releasedDate || new Date().toISOString(),
-              type: 'Full-Time',
-              isRemote: loc.toLowerCase().includes('remote'),
-              source: 'smartrecruiters' as const
-            };
-          })
-        );
-        
-        return detailedJobs.filter(Boolean) as RawCommunityJob[];
-      } catch (err: any) {
-        clearTimeout(tid);
-        console.warn(`[SmartRecruiters] Failed fetching ${company.name} jobs:`, err.message);
-        return [];
-      }
-    })
-  );
-  
-  return results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
-}
-
-async function fetchRemoteOKJobs(
-  keywords: string[], 
-  skills: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 10000);
-  try {
-    const res = await fetch('https://remoteok.com/api', {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobSearchAgent/1.0)' },
-    });
-    clearTimeout(tid);
-    if (!res.ok) return [];
-    const raw: any[] = await res.json();
-    const allKw = [...keywords, ...skills.map(s => s.toLowerCase())];
-    return raw.slice(1).filter(Boolean)
-      .filter(j => {
-        if (!j.position || !j.company) return false;
-        const title = j.position;
-        const tags = (j.tags || []).map((t: string) => t.toLowerCase());
-        const loc = j.location || 'Remote';
-        
-        const titleMatches = matchesKeywords(title, allKw) || tags.some((t: string) => allKw.some(kw => t.includes(kw)));
-        return titleMatches && 
-               !isBlocklistedRole(title, targetRoles, yearsOfExperience) && 
-               !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
-               matchesLocation(loc, searchLocation, prefersRemote);
-      })
-      .map(j => ({
-        title: j.position,
-        company: j.company,
-        location: j.location || 'Remote',
-        description: j.description ? stripHtmlCommunity(j.description).slice(0, 1800) : '',
-        url: j.apply_url || j.url || '',
-        applyUrl: j.apply_url,
-        postedAt: j.date || new Date().toISOString(),
-        type: 'Full-Time',
-        salary: j.salary || (j.salaryMin ? `$${Math.round(j.salaryMin / 1000)}k–$${Math.round(j.salaryMax / 1000)}k` : undefined),
-        isRemote: true,
-        source: 'remoteok' as const,
-      }));
-  } catch { clearTimeout(tid); console.warn('[RemoteOK] Fetch failed'); return []; }
-}
-
-async function fetchRemotiveJobs(
-  keywords: string[],
-  skills: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 10000);
-  try {
-    const categories: string[] = [];
-    const rolesLower = targetRoles.map(r => r.toLowerCase());
-    
-    if (rolesLower.some(r => r.includes('design') || r.includes('ui') || r.includes('ux') || r.includes('creative'))) {
-      categories.push('design');
-    }
-    if (rolesLower.some(r => r.includes('product') || r.includes('pm') || r.includes('program manager'))) {
-      categories.push('product');
-    }
-    if (rolesLower.some(r => r.includes('data') || r.includes('analyst') || r.includes('analytics') || r.includes('science'))) {
-      categories.push('data');
-    }
-    if (rolesLower.some(r => r.includes('devops') || r.includes('sre') || r.includes('reliability') || r.includes('infrastructure') || r.includes('sysadmin') || r.includes('platform'))) {
-      categories.push('devops');
-    }
-    
-    if (categories.length === 0 || rolesLower.some(r => r.includes('software') || r.includes('engineer') || r.includes('developer') || r.includes('frontend') || r.includes('backend') || r.includes('fullstack') || r.includes('web') || r.includes('tech'))) {
-      categories.push('software-development');
-    }
-
-    const allJobs: RawCommunityJob[] = [];
-    const allKw = [...keywords, ...skills.map(s => s.toLowerCase())];
-
-    await Promise.all(categories.map(async (category) => {
-      const url = `https://remotive.com/api/remote-jobs?category=${category}`;
-      try {
-        const res = await fetch(url, {
-          signal: ctrl.signal,
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JobSearchAgent/1.0)' },
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        const raw = data.jobs || [];
-        const mapped = raw
-          .filter((j: any) => {
-            if (!j.title || !j.company_name) return false;
-            const title = j.title;
-            const tags = (j.tags || []).map((t: string) => t.toLowerCase());
-            const loc = j.candidate_required_location || 'Remote';
-            
-            const titleMatches = matchesKeywords(title, allKw) || tags.some((t: string) => allKw.some(kw => t.includes(kw)));
-            return titleMatches &&
-                   !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
-                   matchesLocation(loc, searchLocation, prefersRemote);
-          })
-          .map((j: any) => ({
-            title: j.title,
-            company: j.company_name,
-            location: j.candidate_required_location || 'Remote',
-            description: j.description ? stripHtmlCommunity(j.description).slice(0, 1800) : '',
-            url: j.url || '',
-            postedAt: j.publication_date || new Date().toISOString(),
-            type: j.job_type === 'contract' ? 'Contract' : 'Full-Time',
-            salary: j.salary || undefined,
-            isRemote: true,
-            source: 'remotive' as const,
-          }));
-        allJobs.push(...mapped);
-      } catch (e: any) {
-        console.warn(`[Remotive] Category ${category} fetch failed:`, e.message);
-      }
-    }));
-
-    clearTimeout(tid);
-    
-    const seen = new Set<string>();
-    return allJobs.filter(job => {
-      const key = `${job.title.toLowerCase().trim()}|${job.company.toLowerCase().trim()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-
-  } catch (err: any) {
-    clearTimeout(tid);
-    console.warn('[Remotive] Sourcing failed:', err.message);
-    return [];
-  }
-}
-
-async function fetchHackerNewsJobs(
-  keywords: string[],
-  skills: string[],
-  targetRoles: string[],
-  searchLocation: string,
-  prefersRemote: boolean,
-  yearsOfExperience: number = 0
-): Promise<RawCommunityJob[]> {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 12000);
-  try {
-    const searchUrl = 'https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&query=Who%20is%2520hiring';
-    const searchRes = await fetch(searchUrl, { signal: ctrl.signal });
-    if (!searchRes.ok) return [];
-    const searchData = await searchRes.json();
-    const hits = searchData.hits || [];
-    const story = hits.find((h: any) => h.title && h.title.includes("Who is hiring?"));
-    if (!story) {
-      console.warn('[HackerNews] Latest hiring story not found in hits');
-      return [];
-    }
-
-    const itemUrl = `https://hn.algolia.com/api/v1/items/${story.objectID}`;
-    const itemRes = await fetch(itemUrl, { signal: ctrl.signal });
-    if (!itemRes.ok) return [];
-    const itemData = await itemRes.json();
-    const comments = itemData.children || [];
-
-    const allKw = [...keywords, ...skills.map(s => s.toLowerCase())];
-    const results: RawCommunityJob[] = [];
-
-    for (const comment of comments) {
-      if (!comment.text) continue;
-      
-      const rawText = comment.text;
-      const strippedText = stripHtmlCommunity(rawText);
-      const textLower = strippedText.toLowerCase();
-
-      const hasKeywords = allKw.some(kw => textLower.includes(kw));
-      if (!hasKeywords) continue;
-
-      const lines = strippedText.split('\n').map(l => l.trim()).filter(Boolean);
-      const firstLine = lines[0] ? lines[0].substring(0, 80) : 'Hacker News Post';
-
-      results.push({
-        title: firstLine,
-        company: 'Hacker News Community',
-        location: 'Remote / On-site',
-        description: strippedText.slice(0, 1800),
-        url: `https://news.ycombinator.com/item?id=${comment.id}`,
-        postedAt: comment.created_at || new Date().toISOString(),
-        type: 'Full-Time',
-        isRemote: true,
-        source: 'hackernews' as const,
-      });
-    }
-
-    clearTimeout(tid);
-    return results;
-  } catch (err: any) {
-    clearTimeout(tid);
-    console.warn('[HackerNews] Sourcing failed:', err.message);
-    return [];
-  }
-}
-
-async function scoreCommunityJobs(
-  jobs: RawCommunityJob[], rawText: string, llmConfig: any,
-  experienceContext: string, savedJobs: any[]
-): Promise<any[]> {
-  const scored = await Promise.allSettled(jobs.map(async (job, i) => {
-    const isDuplicate = savedJobs.some((s: any) =>
-      s.title.toLowerCase() === job.title.toLowerCase() &&
-      s.company.toLowerCase() === job.company.toLowerCase()
-    );
-    const base: any = {
-      id: `community-${job.source}-${Date.now()}-${i}`,
-      title: job.title, company: job.company, location: job.location,
-      salary: job.salary || 'Not specified', type: job.type || 'Full-Time',
-      isW2: true, description: job.description,
-      url: job.applyUrl || job.url, postedAt: job.postedAt || 'Posted recently',
-      isDuplicate, status: 'discovered', scannedAt: new Date().toISOString(),
-      isUrlVerified: true, isRemote: job.isRemote,
-      skillsRequired: [], industry: '', experienceLevel: 'Mid',
-      salaryNum: 0, matchScore: 50, matchReason: '', sourceTag: job.source,
-    };
-    try {
-      const isHN = job.source === 'hackernews';
-      const promptBuilder = (resumeLimit: number, descLimit: number) => {
-        if (isHN) {
-          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this Hacker News "Who is hiring?" job posting.
-        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
-        Hacker News Post Description:
-        """
-        ${job.description.slice(0, descLimit)}
-        """
-        Experience rule: ${experienceContext}
-        
-        Since this is a raw community forum post, you MUST identify and extract the following:
-        1. "company": The actual name of the hiring company (do NOT return "Hacker News Community").
-        2. "title": A concise job title (e.g. "Senior Software Engineer" or "Full-Stack Developer").
-        3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
-        
-        Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
-        } else {
-          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
-        Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, descLimit)}
-        Experience rule: ${experienceContext}
-        Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
-        }
-      };
-
-      const result = await queryCustomLLMAdaptive(
-        llmConfig.endpoint,
-        llmConfig.apiKey,
-        llmConfig.modelName,
-        promptBuilder,
-        (llmConfig.timeout || 30) * 1000,
-        isHN
-      );
-
-      const txt = result.content;
-      const tier = result.tier;
-
-      const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
-      const ev = JSON.parse(cleaned);
-      
-      const finalTitle = (job.source === 'hackernews' && ev.title && ev.title !== 'Extracted Title') ? ev.title : base.title;
-      const finalCompany = (job.source === 'hackernews' && ev.company && ev.company !== 'Extracted Company') ? ev.company : base.company;
-      const finalLocation = (job.source === 'hackernews' && ev.location && ev.location !== 'Extracted Location') ? ev.location : base.location;
-      
-      const existsInSaved = savedJobs.some((s: any) =>
-        s.title.toLowerCase().trim() === finalTitle.toLowerCase().trim() &&
-        s.company.toLowerCase().trim() === finalCompany.toLowerCase().trim()
-      );
-
-      return {
-        ...base,
-        title: finalTitle,
-        company: finalCompany,
-        location: finalLocation,
-        isDuplicate: base.isDuplicate || existsInSaved,
-        matchScore: typeof ev.matchScore === 'number' ? Math.min(100, Math.max(0, ev.matchScore)) : 50,
-        matchReason: ev.matchReason || '', skillsRequired: ev.skillsRequired || [],
-        industry: ev.industry || '', experienceLevel: ev.experienceLevel || 'Mid',
-        salaryNum: typeof ev.salaryNum === 'number' ? ev.salaryNum : 0,
-        retryTier: tier,
-      };
-    } catch (e: any) {
-      console.warn(`[Community] LLM score failed for "${job.title}":`, e.message);
-      return base;
-    }
-  }));
-  return scored.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value);
-}
-
-// 1.5. Endpoint to Source matching jobs from community boards and web searches (no LLM evaluation)
-function normalizeJobUrl(urlStr: string): string {
-  try {
-    const url = new URL(urlStr);
-    url.search = '';
-    url.hash = '';
-    let href = url.href.toLowerCase();
-    if (href.endsWith('/')) {
-      href = href.slice(0, -1);
-    }
-    return href;
-  } catch {
-    return urlStr.toLowerCase();
-  }
-}
-
-function extractJobNumber(urlStr: string): string | null {
-  try {
-    const url = new URL(urlStr);
-    const pathname = url.pathname;
-    
-    const workdayMatch = pathname.match(/(?:_|^-|job\/)(JR|R|JR-)[0-9]+/i);
-    if (workdayMatch) {
-      return workdayMatch[0].replace(/^_/, '').replace(/^job\//, '');
-    }
-    
-    const uuidMatch = pathname.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-    if (uuidMatch) {
-      return uuidMatch[0];
-    }
-    
-    const pathParts = pathname.split('/').filter(Boolean);
-    if (pathParts.length > 0) {
-      const lastPart = pathParts[pathParts.length - 1];
-      if (/^\d+$/.test(lastPart)) {
-        return lastPart;
-      }
-      if (lastPart.length >= 8 && /^[0-9a-f\-]+$/i.test(lastPart)) {
-        return lastPart;
-      }
-    }
-  } catch {}
-  return null;
-}
-
 // 1.5. Endpoint to Source matching jobs from community boards and web searches (no LLM evaluation)
 app.post('/api/jobs/source', async (req, res) => {
   try {
+    updateScannerActive();
     const {
       targetRoles = [],
       skills = [],
@@ -1850,19 +179,15 @@ app.post('/api/jobs/source', async (req, res) => {
 
     console.log('[Source Endpoint] Sourcing community and F500 jobs...');
     // 1. Fetch community and F500 jobs in parallel, bypassing degraded/offline channels
-    const [ghJobs, lvJobs, ashJobs, wdJobs, srJobs, rokJobs, remJobs, hnJobs] = await Promise.all([
-      health.greenhouse ? fetchGreenhouseJobs(cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      health.lever ? fetchLeverJobs(cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      health.ashby ? fetchAshbyJobs(cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      health.workday ? fetchWorkdayJobs(cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      health.smartrecruiters ? fetchSmartRecruitersJobs(cachedSmartRecruitersDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      (prefersRemote || prefersHybrid) ? fetchRemoteOKJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      (prefersRemote || prefersHybrid) ? fetchRemotiveJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-      fetchHackerNewsJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
+    const [ghJobs, lvJobs, ashJobs, wdJobs] = await Promise.all([
+      health.greenhouse ? fetchGreenhouseJobs(globalState.cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+      health.lever ? fetchLeverJobs(globalState.cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+      health.ashby ? fetchAshbyJobs(globalState.cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+      health.workday ? fetchWorkdayJobs(globalState.cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
     ]);
 
-    let communityJobs = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs, ...srJobs, ...rokJobs, ...remJobs, ...hnJobs];
-    console.log(`[Source Endpoint] Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}, SmartRecruiters: ${srJobs.length}, RemoteOK: ${rokJobs.length}, Remotive: ${remJobs.length}, HackerNews: ${hnJobs.length}`);
+    let communityJobs = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs];
+    console.log(`[Source Endpoint] Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}`);
 
     // 2. Fetch search engine grounding links (DuckDuckGo/Yahoo) to expand findings
     console.log('[Source Endpoint] Sourcing web search links...');
@@ -1960,7 +285,7 @@ app.post('/api/jobs/source', async (req, res) => {
         } catch {}
 
         const cleanText = stripHtmlCommunity(pageHtml);
-        const description = cleanText.slice(0, 1800);
+        const description = cleanText.slice(0, 15000);
 
         // Apply filters
         if (matchesKeywords(title, roleKeywords) && 
@@ -2104,10 +429,6 @@ app.post('/api/jobs/source', async (req, res) => {
         lever: { count: lvJobs.length, status: health.lever ? 'ok' : 'skipped' },
         ashby: { count: ashJobs.length, status: health.ashby ? 'ok' : 'skipped' },
         workday: { count: wdJobs.length, status: health.workday ? 'ok' : 'skipped' },
-        smartrecruiters: { count: srJobs.length, status: health.smartrecruiters ? 'ok' : 'skipped' },
-        remoteok: { count: rokJobs.length, status: (prefersRemote || prefersHybrid) ? 'ok' : 'skipped' },
-        remotive: { count: remJobs.length, status: (prefersRemote || prefersHybrid) ? 'ok' : 'skipped' },
-        hackernews: { count: hnJobs.length, status: 'ok' },
         websearch: { count: webScrapedJobs.length, status: 'ok' }
       }
     });
@@ -2120,6 +441,7 @@ app.post('/api/jobs/source', async (req, res) => {
 // 1.6. Endpoint to score a single job posting against candidate resume
 app.post('/api/jobs/evaluate', async (req, res) => {
   try {
+    updateScannerActive();
     const {
       job,
       rawText,
@@ -2256,6 +578,13 @@ app.post('/api/jobs/evaluate', async (req, res) => {
         retryTier: tier,
       };
       
+      const evalDb = readDb();
+      if (!evalDb.stats) {
+        evalDb.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
+      }
+      evalDb.stats.llmEvaluations += 1;
+      writeDb(evalDb);
+      
       res.json(finalJob);
     } catch (llmErr: any) {
       console.warn(`[Evaluate Endpoint] LLM score failed for "${job.title}":`, llmErr.message);
@@ -2271,6 +600,7 @@ app.post('/api/jobs/evaluate', async (req, res) => {
 // 2. Endpoint to Scan for matching jobs using Real-time Google Search Grounding
 app.post('/api/jobs/scan', async (req, res) => {
   try {
+    updateScannerActive();
     const {
       rawText,
       targetRoles = [],
@@ -2285,6 +615,9 @@ app.post('/api/jobs/scan', async (req, res) => {
       yearsOfExperience = 0,
       llmConfig,
     } = req.body;
+
+    const scanDb = readDb();
+    const blockedCompanies = scanDb.profile?.blockedCompanies || [];
 
     // Build the experience qualifier string for prompts
     const experienceContext = yearsOfExperience > 0
@@ -2322,28 +655,20 @@ app.post('/api/jobs/scan', async (req, res) => {
     let isOfflineFallback = false;
 
     // Launch community sources in parallel immediately — no API key required
-    console.log('[Community Sources] Starting Greenhouse, Lever, Workday, SmartRecruiters, RemoteOK fetch in parallel...');
+    console.log('[Community Sources] Starting Greenhouse, Lever, Workday, Ashby fetch in parallel...');
     const communitySourcesPromise = (async () => {
       await updateCompanyDirectoriesFromRegistry();
-      const [ghRes, lvRes, ashRes, wdRes, srRes, rokRes, remRes, hnRes] = await Promise.allSettled([
-        fetchGreenhouseJobs(cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
-        fetchLeverJobs(cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
-        fetchAshbyJobs(cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
-        fetchWorkdayJobs(cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
-        fetchSmartRecruitersJobs(cachedSmartRecruitersDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
-        (prefersRemote || prefersHybrid) ? fetchRemoteOKJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-        (prefersRemote || prefersHybrid) ? fetchRemotiveJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-        fetchHackerNewsJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
+      const [ghRes, lvRes, ashRes, wdRes] = await Promise.allSettled([
+        fetchGreenhouseJobs(globalState.cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
+        fetchLeverJobs(globalState.cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
+        fetchAshbyJobs(globalState.cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
+        fetchWorkdayJobs(globalState.cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience),
       ]);
       const raw: RawCommunityJob[] = [
         ...(ghRes.status === 'fulfilled' ? ghRes.value : []),
         ...(lvRes.status === 'fulfilled' ? lvRes.value : []),
         ...(ashRes.status === 'fulfilled' ? ashRes.value : []),
         ...(wdRes.status === 'fulfilled' ? wdRes.value : []),
-        ...(srRes.status === 'fulfilled' ? srRes.value : []),
-        ...(rokRes.status === 'fulfilled' ? rokRes.value : []),
-        ...(remRes.status === 'fulfilled' ? remRes.value : []),
-        ...(hnRes.status === 'fulfilled' ? hnRes.value : []),
       ];
       // Deduplicate across sources
       const seen = new Set<string>();
@@ -2390,7 +715,7 @@ app.post('/api/jobs/scan', async (req, res) => {
 
       const toScore = interleavedJobs.slice(0, 25);
       console.log(`[Community Sources] ${unique.length} unique matched jobs found. Scoring top ${toScore.length}...`);
-      return scoreCommunityJobs(toScore, rawText, llmConfig, experienceContext, savedJobs);
+      return scoreCommunityJobs(toScore, rawText, llmConfig, experienceContext, savedJobs, locationQuery, prefersRemote, blockedCompanies);
     })();
 
     try {
@@ -2490,6 +815,15 @@ app.post('/api/jobs/scan', async (req, res) => {
         evaluatedJobs = await Promise.all(
           verifiedJobs.map(async (job: any) => {
             try {
+              const companyL = job.company.toLowerCase().trim();
+              if (blockedCompanies.some(bc => bc.toLowerCase().trim() === companyL)) {
+                return {
+                  ...job,
+                  matchScore: 0,
+                  matchReason: 'Company Blocked',
+                };
+              }
+
               const evalPrompt = `
                 You are an expert Job Placement Search Agent. Evaluate how well the candidate's resume matches the following job description.
                  Candidate Resume:
@@ -2783,6 +1117,12 @@ app.post('/api/jobs/scan', async (req, res) => {
 
     // Run active filters server side to guarantee precision
     const filteredJobs = enrichedJobs.filter((job: any) => {
+      // Check blocklist
+      const companyL = job.company.toLowerCase().trim();
+      if (blockedCompanies.some(bc => bc.toLowerCase().trim() === companyL)) {
+        return false;
+      }
+
       // Exclude unverified links as requested
       if (!job.isUrlVerified) {
         return false;
@@ -2876,19 +1216,304 @@ app.post('/api/llm/proxy', async (req, res) => {
   }
 });
 
+// ============================================================
+// CORE SYNC & ACTION ENDPOINTS
+// ============================================================
+app.get('/api/jobs/sync', (req, res) => {
+  const db = readDb();
+  res.json(db);
+});
+
+app.post('/api/jobs/poll', (req, res) => {
+  const db = readDb();
+  const logs = db.logs || [];
+  const hasLogs = logs.length > 0;
+  if (hasLogs) {
+    db.logs = [];
+    writeDb(db);
+  }
+  res.json({
+    success: true,
+    db: { ...db, logs: [] },
+    newLogs: logs,
+    currentlyRefiningJobId: globalState.currentlyRefiningJobId
+  });
+});
+
+app.post('/api/profile/sync', (req, res) => {
+  const { profile, llmConfig } = req.body;
+  const db = readDb();
+  if (profile) db.profile = profile;
+  if (llmConfig) db.llmConfig = llmConfig;
+  writeDb(db);
+  res.json({ success: true });
+});
+
+app.post('/api/logs/clear', (req, res) => {
+  const db = readDb();
+  db.logs = [];
+  writeDb(db);
+  res.json({ success: true });
+});
+
+app.post('/api/jobs/action', (req, res) => {
+  const { action, job, id, status, notes, updatedFields, jobs } = req.body;
+  const db = readDb();
+  let modified = false;
+
+  const removeJobFromList = (list: Job[], jobId: string) => {
+    const index = list.findIndex(j => j.id === jobId);
+    if (index !== -1) {
+      list.splice(index, 1);
+      return true;
+    }
+    return false;
+  };
+
+  switch (action) {
+    case 'save': {
+      const jobsToSave = Array.isArray(jobs) ? jobs : (job ? [job] : []);
+      for (const j of jobsToSave) {
+        removeJobFromList(db.scannedJobs, j.id);
+        removeJobFromList(db.watchlist, j.id);
+        if (!db.savedJobs.some(x => x.id === j.id)) {
+          db.savedJobs.unshift({ ...j, status: 'applied', appliedDate: new Date().toISOString() });
+        }
+      }
+      modified = true;
+      break;
+    }
+    case 'watchlist': {
+      const jobsToWatch = Array.isArray(jobs) ? jobs : (job ? [job] : []);
+      for (const j of jobsToWatch) {
+        removeJobFromList(db.scannedJobs, j.id);
+        if (!db.watchlist.some(x => x.id === j.id)) {
+          db.watchlist.unshift({ ...j, status: 'discovered' });
+        }
+      }
+      modified = true;
+      break;
+    }
+    case 'dismiss': {
+      if (job) {
+        removeJobFromList(db.scannedJobs, job.id);
+        removeJobFromList(db.watchlist, job.id);
+        removeJobFromList(db.savedJobs, job.id);
+        if (!db.dismissedJobs.some(j => j.id === job.id)) {
+          db.dismissedJobs.unshift(job);
+        }
+        modified = true;
+      }
+      break;
+    }
+    case 'undismiss': {
+      if (job) {
+        removeJobFromList(db.dismissedJobs, job.id);
+        if (!db.scannedJobs.some(j => j.id === job.id)) {
+          db.scannedJobs.unshift({ ...job, status: 'discovered' });
+        }
+        modified = true;
+      }
+      break;
+    }
+    case 'update_status': {
+      const savedJob = db.savedJobs.find(j => j.id === id);
+      if (savedJob) {
+        savedJob.status = status;
+        if (notes !== undefined) savedJob.notes = notes;
+        if (status === 'applied' && !savedJob.appliedDate) {
+          savedJob.appliedDate = new Date().toISOString();
+        }
+        modified = true;
+      }
+      break;
+    }
+    case 'update_details': {
+      const savedJob = db.savedJobs.find(j => j.id === id);
+      if (savedJob) {
+        Object.assign(savedJob, updatedFields);
+        modified = true;
+      }
+      break;
+    }
+    case 'remove_watchlist': {
+      const wJob = db.watchlist.find(j => j.id === id);
+      if (wJob) {
+        removeJobFromList(db.watchlist, id);
+        if (!db.dismissedJobs.some(j => j.id === id)) {
+          db.dismissedJobs.unshift(wJob);
+        }
+        modified = true;
+      }
+      break;
+    }
+    case 'remove_saved': {
+      const sJob = db.savedJobs.find(j => j.id === id);
+      if (sJob) {
+        removeJobFromList(db.savedJobs, id);
+        if (!db.dismissedJobs.some(j => j.id === id)) {
+          db.dismissedJobs.unshift(sJob);
+        }
+        modified = true;
+      }
+      break;
+    }
+    case 'add_discovered_batch': {
+      if (Array.isArray(jobs)) {
+        for (const newJob of jobs) {
+          const exists = db.scannedJobs.some(j => j.id === newJob.id) ||
+                         db.watchlist.some(j => j.id === newJob.id) ||
+                         db.savedJobs.some(j => j.id === newJob.id) ||
+                         db.dismissedJobs.some(j => j.id === newJob.id);
+          if (!exists) {
+            db.scannedJobs.unshift(newJob);
+            modified = true;
+          }
+        }
+      }
+      break;
+    }
+    case 'sync_client_data': {
+      const { scannedJobs, watchlist, savedJobs, dismissedJobs, profile: clientProfile, llmConfig: clientConfig, stats: clientStats } = req.body;
+      if (Array.isArray(scannedJobs)) db.scannedJobs = scannedJobs;
+      if (Array.isArray(watchlist)) db.watchlist = watchlist;
+      if (Array.isArray(savedJobs)) db.savedJobs = savedJobs;
+      if (Array.isArray(dismissedJobs)) db.dismissedJobs = dismissedJobs;
+      if (clientProfile) db.profile = clientProfile;
+      if (clientConfig) db.llmConfig = clientConfig;
+      if (clientStats) {
+        db.stats = {
+          totalScanned: typeof clientStats.totalScanned === 'number' ? clientStats.totalScanned : 0,
+          duplicatesPrevented: typeof clientStats.duplicatesPrevented === 'number' ? clientStats.duplicatesPrevented : 0,
+          llmEvaluations: typeof clientStats.llmEvaluations === 'number' ? clientStats.llmEvaluations : 0,
+          totalSourced: typeof clientStats.totalSourced === 'number' ? clientStats.totalSourced : 0
+        };
+      }
+      modified = true;
+      break;
+    }
+    default:
+      res.status(400).json({ error: `Unknown action: ${action}` });
+      return;
+  }
+
+  if (modified) {
+    writeDb(db);
+  }
+  res.json({ success: true, db });
+});
+
+// Endpoint to force run sourcing immediately
+app.post('/api/jobs/search-now', async (req, res) => {
+  if (globalState.isSourcingActive) {
+    res.status(429).send('A search scan is already actively running. Please wait for it to complete.');
+    return;
+  }
+  try {
+    console.log('[API] Instant search-now trigger received.');
+    addRefinerLog('Search Agent: Manual "Search Now" search triggered by candidate.');
+    
+    // Reset pacing variables to allow immediate search and bypass cooldowns
+    globalState.lastScannerActiveTime = 0; // force refiner idle check to pass
+    globalState.lastBackgroundSourceTime = 0; // force sourcing to run
+    
+    // Clear domain fetch cooldowns to allow immediate scanning/sourcing of all domains
+    for (const key of Object.keys(globalState.domainFetchCooldowns)) {
+      delete globalState.domainFetchCooldowns[key];
+    }
+    
+    // Execute sourcing synchronously for this request with isManual = true
+    const preventedDuplicates = await runBackgroundSourcing(true);
+    
+    const freshDb = readDb();
+    res.json({ success: true, db: freshDb, preventedDuplicates });
+  } catch (err: any) {
+    console.error('[API] Search-now trigger failed:', err);
+    res.status(500).json({ error: err.message || 'Failed to execute immediate search.' });
+  }
+});
+
+app.get('/api/test/mock-page', (req, res) => {
+  res.send(req.query.text || '');
+});
+
+app.get('/api/test/refiner', async (req, res) => {
+  try {
+    console.log('[Test Route] Triggering manual refinement cycle...', req.query);
+    globalState.lastScannerActiveTime = 0; // Force idle
+    
+    if (req.query.clearCooldowns === 'true') {
+      console.log('[Test Route] Clearing domain cooldowns...');
+      for (const key in globalState.domainFetchCooldowns) {
+        delete globalState.domainFetchCooldowns[key];
+      }
+    }
+
+    if (req.query.runSourcing === 'true') {
+      console.log('[Test Route] Forcing background sourcing execution...');
+      globalState.lastBackgroundSourceTime = 0;
+    }
+    
+    const beforeDb = readDb();
+    await runRefinementCycle();
+    const afterDb = readDb();
+    
+    res.json({
+      success: true,
+      message: 'Refinement cycle executed.',
+      before: {
+        scannedCount: beforeDb.scannedJobs.length,
+        dismissedCount: beforeDb.dismissedJobs.length
+      },
+      after: {
+        scannedCount: afterDb.scannedJobs.length,
+        dismissedCount: afterDb.dismissedJobs.length,
+        scannedJobs: afterDb.scannedJobs,
+        dismissedJobs: afterDb.dismissedJobs,
+        logs: afterDb.logs
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Endpoint to retrieve LLM health and circuit breaker metrics
 app.get('/api/llm/health', (req, res) => {
-  const successRate = llmHealthState.totalAttempts > 0 
-    ? (llmHealthState.totalSuccesses / llmHealthState.totalAttempts) 
+  const health = globalState.llmHealthState;
+  const successRate = health.totalAttempts > 0 
+    ? (health.totalSuccesses / health.totalAttempts) 
     : 1.0;
   res.json({
-    ...llmHealthState,
+    ...health,
     successRate
   });
 });
 
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
+
 // Configure Vite or Static server
 async function start() {
+  // One-time database cleanup of legacy unmatched/unevaluated jobs
+  try {
+    const db = readDb();
+    const originalCount = db.scannedJobs.length;
+    const cleanScanned = db.scannedJobs.filter(j => j.matchScore > 0 && j.matchReason);
+    if (cleanScanned.length !== originalCount) {
+      db.scannedJobs = cleanScanned;
+      writeDb(db);
+      console.log(`[Startup Cleanup] Removed ${originalCount - cleanScanned.length} legacy unmatched/unevaluated jobs from scannedJobs.`);
+      addRefinerLog(`System Startup: Removed ${originalCount - cleanScanned.length} legacy unmatched/unevaluated jobs to restore slots.`);
+    }
+  } catch (err: any) {
+    console.error('[Startup Cleanup] Failed to run database cleanup:', err.message);
+  }
+
+  // Start the background refiner
+  startBackgroundRefiner();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

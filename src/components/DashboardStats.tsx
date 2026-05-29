@@ -1,38 +1,12 @@
 import React from 'react';
-import { Briefcase, Gift, History, Percent } from 'lucide-react';
-import { Job, JobStatusType } from '../types';
+import { Briefcase, History, Sparkles, Globe } from 'lucide-react';
+import { AgentStats } from '../types';
 
 interface DashboardStatsProps {
-  jobs: Job[];
-  stats: {
-    totalScanned: number;
-    duplicatesPrevented: number;
-    activeMatchesCount: number;
-  };
+  stats: AgentStats;
 }
 
-export default function DashboardStats({ jobs, stats }: DashboardStatsProps) {
-  // Aggregate jobs by status
-  const getCountByStatus = (status: JobStatusType): number => {
-    return jobs.filter((j) => j.status === status).length;
-  };
-
-  const statusCounts = {
-    discovered: getCountByStatus('discovered'),
-    applied: getCountByStatus('applied'),
-    review: getCountByStatus('review'),
-    interviewing: getCountByStatus('interviewing'),
-    offered: getCountByStatus('offered'),
-    rejected: getCountByStatus('rejected'),
-  };
-
-  const appliedCount = statusCounts.applied + statusCounts.review + statusCounts.interviewing + statusCounts.offered + statusCounts.rejected;
-  
-  // Calculate Rates
-  const interviewRate = appliedCount > 0 
-    ? Math.round(((statusCounts.interviewing + statusCounts.offered) / appliedCount) * 100) 
-    : 0;
-
+export default function DashboardStats({ stats }: DashboardStatsProps) {
   return (
     <div className="space-y-6" id="dashboard-stats-main">
       {/* Prime Stats Cards Grid */}
@@ -58,22 +32,22 @@ export default function DashboardStats({ jobs, stats }: DashboardStatsProps) {
         </div>
 
         <div className="sleek-card rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-            <Percent className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-xl bg-violet-950/20 border border-violet-500/20 flex items-center justify-center text-violet-400 shrink-0">
+            <Sparkles className="w-6 h-6 animate-pulse" style={{ animationDuration: '3s' }} />
           </div>
           <div>
-            <span className="text-xs text-slate-400 block font-medium">Interview Rate</span>
-            <span className="text-2xl font-bold text-emerald-400 tracking-tight">{interviewRate}%</span>
+            <span className="text-xs text-slate-400 block font-medium">LLM Evaluations</span>
+            <span className="text-2xl font-bold text-violet-400 tracking-tight">{stats.llmEvaluations}</span>
           </div>
         </div>
 
         <div className="sleek-card rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-indigo-950/20 border border-indigo-500/20 flex items-center justify-center text-indigo-405 text-indigo-400 shrink-0">
-            <Gift className="w-6 h-6 animate-bounce" style={{ animationDuration: '4s' }} />
+          <div className="w-12 h-12 rounded-xl bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+            <Globe className="w-6 h-6" />
           </div>
           <div>
-            <span className="text-xs text-slate-400 block font-medium">Offered Positions</span>
-            <span className="text-2xl font-bold text-indigo-455 text-indigo-400 tracking-tight">{statusCounts.offered}</span>
+            <span className="text-xs text-slate-400 block font-medium">Sourced Postings</span>
+            <span className="text-2xl font-bold text-emerald-400 tracking-tight">{stats.totalSourced}</span>
           </div>
         </div>
       </div>

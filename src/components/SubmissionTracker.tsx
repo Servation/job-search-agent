@@ -4,29 +4,12 @@
  */
 
 import React, { useState } from 'react';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
-import { 
-  FileCheck, 
-  Search, 
-  MapPin, 
-  Building, 
-  Trash2, 
-  CheckSquare, 
-  Paperclip, 
-  Calendar,
-  AlertCircle,
-  ExternalLink,
-  ChevronDown,
-  ChevronUp,
-  Plus,
-  X,
-  Star,
-  Link,
-  FileText,
-  Edit2,
-  Save,
-} from 'lucide-react';
-import { Job, JobStatusType, JobTypeType } from '../types';
+import { FileCheck, Search, Plus, X, AlertCircle } from 'lucide-react';
+import { Job, JobStatusType } from '../types';
+
+// Import subcomponents
+import TrackedJobCard, { statuses } from './SubmissionTracker/TrackedJobCard';
+import ManualAddForm from './SubmissionTracker/ManualAddForm';
 
 interface SubmissionTrackerProps {
   jobs: Job[];
@@ -35,16 +18,6 @@ interface SubmissionTrackerProps {
   onAddJobs: (jobs: Job[]) => void;
   onUpdateJobDetails: (id: string, updatedFields: Partial<Job>) => void;
 }
-
-const EMPTY_FORM = {
-  title: '',
-  company: '',
-  location: '',
-  type: 'Full-Time' as JobTypeType,
-  url: '',
-  matchScore: '',
-  description: '',
-};
 
 export default function SubmissionTracker({
   jobs,
@@ -56,60 +29,7 @@ export default function SubmissionTracker({
   const [filterSearch, setFilterSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'company' | 'title' | 'score' | 'date' | 'status'>('company');
-  const [expandedDesc, setExpandedDesc] = useState<Set<string>>(new Set());
   const [showAddForm, setShowAddForm] = useState(false);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [formError, setFormError] = useState('');
-  const [editingJobId, setEditingJobId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<typeof EMPTY_FORM | null>(null);
-
-  // Aggregate metrics for tracker charts
-  const getCountByStatus = (status: JobStatusType): number => {
-    return jobs.filter((j) => j.status === status).length;
-  };
-
-  const statusCounts = {
-    discovered: getCountByStatus('discovered'),
-    applied: getCountByStatus('applied'),
-    review: getCountByStatus('review'),
-    interviewing: getCountByStatus('interviewing'),
-    offered: getCountByStatus('offered'),
-    rejected: getCountByStatus('rejected'),
-  };
-
-  const totalSaved = jobs.length;
-
-  // Aggregate job types (FT vs Contract vs Part-Time)
-  const ftCount = jobs.filter(j => j.type === 'Full-Time').length;
-  const contractCount = jobs.filter(j => j.type === 'Contract').length;
-  const partTimeCount = jobs.filter(j => j.type === 'Part-Time').length;
-
-  const w2Count = jobs.filter(j => j.isW2).length;
-  const nonW2Count = jobs.filter(j => !j.isW2 && j.type === 'Contract').length;
-
-  // Setup Recharts Data
-  const chartData = [
-    { name: 'Applied', count: statusCounts.applied, color: '#6366f1' },
-    { name: 'In Review', count: statusCounts.review, color: '#3b82f6' },
-    { name: 'Interviewing', count: statusCounts.interviewing, color: '#f59e0b' },
-    { name: 'Offered', count: statusCounts.offered, color: '#10b981' },
-    { name: 'Rejected', count: statusCounts.rejected, color: '#f43f5e' },
-  ];
-
-  const typesData = [
-    { label: 'Full-Time', value: ftCount, color: 'bg-indigo-600' },
-    { label: 'Contract', value: contractCount, color: 'bg-amber-600' },
-    { label: 'Part-Time', value: partTimeCount, color: 'bg-teal-600' },
-  ];
-
-  const statuses: { value: JobStatusType; label: string; color: string }[] = [
-    { value: 'discovered', label: 'Discovered', color: 'bg-slate-900 text-slate-400 border-white/15' },
-    { value: 'applied', label: 'Applied', color: 'bg-indigo-950/40 text-indigo-300 border-indigo-500/20 hover:ring-indigo-500/30' },
-    { value: 'review', label: 'Under Review', color: 'bg-blue-950/40 text-blue-300 border-blue-500/20' },
-    { value: 'interviewing', label: 'Interviewing', color: 'bg-amber-950/40 text-amber-300 border-amber-500/20 hover:ring-amber-500/30' },
-    { value: 'offered', label: 'Offered', color: 'bg-emerald-950/40 text-emerald-300 border-emerald-500/20' },
-    { value: 'rejected', label: 'Rejected / Archived', color: 'bg-rose-950/40 text-rose-300 border-rose-500/20' },
-  ];
 
   const filteredJobs = jobs.filter((j) => {
     const matchesSearch = 
@@ -120,21 +40,18 @@ export default function SubmissionTracker({
   });
 
   const sortedJobs = [...filteredJobs].sort((a, b) => {
+    let result = 0;
     if (sortBy === 'company') {
-      return a.company.localeCompare(b.company);
-    }
-    if (sortBy === 'title') {
-      return a.title.localeCompare(b.title);
-    }
-    if (sortBy === 'score') {
-      return b.matchScore - a.matchScore;
-    }
-    if (sortBy === 'date') {
+      result = a.company.localeCompare(b.company);
+    } else if (sortBy === 'title') {
+      result = a.title.localeCompare(b.title);
+    } else if (sortBy === 'score') {
+      result = b.matchScore - a.matchScore;
+    } else if (sortBy === 'date') {
       const dateA = a.appliedDate ? new Date(a.appliedDate).getTime() : 0;
       const dateB = b.appliedDate ? new Date(b.appliedDate).getTime() : 0;
-      return dateB - dateA;
-    }
-    if (sortBy === 'status') {
+      result = dateB - dateA;
+    } else if (sortBy === 'status') {
       const statusOrder: Record<string, number> = {
         offered: 0,
         interviewing: 1,
@@ -146,104 +63,20 @@ export default function SubmissionTracker({
       const orderA = statusOrder[a.status] ?? 99;
       const orderB = statusOrder[b.status] ?? 99;
       if (orderA !== orderB) {
-        return orderA - orderB;
+        result = orderA - orderB;
+      } else {
+        result = a.company.localeCompare(b.company);
       }
-      return a.company.localeCompare(b.company);
     }
-    return 0;
+
+    if (result === 0) {
+      return a.id.localeCompare(b.id);
+    }
+    return result;
   });
 
-  const toggleDesc = (id: string) => {
-    setExpandedDesc(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) { next.delete(id); } else { next.add(id); }
-      return next;
-    });
-  };
-
-  const handleStartEdit = (job: Job) => {
-    setEditingJobId(job.id);
-    setEditForm({
-      title: job.title,
-      company: job.company,
-      location: job.location || '',
-      type: job.type,
-      url: job.url || '',
-      matchScore: job.matchScore > 0 ? String(job.matchScore) : '',
-      description: job.description || '',
-    });
-  };
-
-  const handleCancelEdit = () => {
-    setEditingJobId(null);
-    setEditForm(null);
-  };
-
-  const handleSaveEdit = (id: string) => {
-    if (!editForm) return;
-    if (!editForm.title.trim() || !editForm.company.trim()) {
-      alert('Job title and company are required.');
-      return;
-    }
-    const scoreNum = editForm.matchScore ? Math.min(100, Math.max(0, parseInt(editForm.matchScore, 10))) : 0;
-    
-    onUpdateJobDetails(id, {
-      title: editForm.title.trim(),
-      company: editForm.company.trim(),
-      location: editForm.location.trim() || 'Not specified',
-      type: editForm.type,
-      url: editForm.url.trim(),
-      matchScore: scoreNum,
-      description: editForm.description.trim(),
-    });
-
-    setEditingJobId(null);
-    setEditForm(null);
-  };
-
-  const handleEditFormChange = (field: keyof typeof EMPTY_FORM, value: string) => {
-    setEditForm(prev => prev ? { ...prev, [field]: value } : null);
-  };
-
-  const handleFormChange = (field: keyof typeof EMPTY_FORM, value: string) => {
-    setForm(prev => ({ ...prev, [field]: value }));
-    setFormError('');
-  };
-
-  const handleAddManual = () => {
-    if (!form.title.trim() || !form.company.trim()) {
-      setFormError('Job title and company are required.');
-      return;
-    }
-    const scoreNum = form.matchScore ? Math.min(100, Math.max(0, parseInt(form.matchScore, 10))) : 0;
-    const job: Job = {
-      id: `manual-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      title: form.title.trim(),
-      company: form.company.trim(),
-      location: form.location.trim() || 'Not specified',
-      type: form.type,
-      isW2: true,
-      description: form.description.trim(),
-      url: form.url.trim(),
-      postedAt: new Date().toISOString(),
-      matchScore: scoreNum,
-      matchReason: '',
-      isDuplicate: false,
-      status: 'applied',
-      scannedAt: new Date().toISOString(),
-      appliedDate: new Date().toISOString(),
-    };
+  const handleAddManualJob = (job: Job) => {
     onAddJobs([job]);
-    setForm(EMPTY_FORM);
-    setShowAddForm(false);
-    setFormError('');
-  };
-
-  const scoreColor = (score: number) => {
-    if (score >= 80) return 'text-emerald-400 bg-emerald-950/40 border-emerald-500/25';
-    if (score >= 60) return 'text-amber-400 bg-amber-950/30 border-amber-500/20';
-    if (score > 0)   return 'text-rose-400 bg-rose-950/30 border-rose-500/20';
-    return 'text-slate-500 bg-slate-900/50 border-white/10';
   };
 
   return (
@@ -252,7 +85,7 @@ export default function SubmissionTracker({
         <div>
           <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display">
             <FileCheck className="w-5 h-5 text-indigo-400" />
-            Submission Tracker Dashboard
+            Submission Tracker
           </h2>
           <p className="text-sm text-slate-400 mt-1">
             Track and update submission pipelines. Prevent applying to identical openings.
@@ -264,7 +97,7 @@ export default function SubmissionTracker({
             Pipeline Volume: {jobs.length} Active Positions
           </span>
           <button
-            onClick={() => { setShowAddForm(v => !v); setFormError(''); }}
+            onClick={() => setShowAddForm(v => !v)}
             className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/25 text-indigo-300 transition-colors cursor-pointer"
           >
             {showAddForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
@@ -273,205 +106,24 @@ export default function SubmissionTracker({
         </div>
       </div>
 
-      {/* Metrics Section */}
-      {jobs.length > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2 pb-4 border-b border-white/5 animate-fade-in" id="tracker-metrics-charts">
-          {/* Recharts - Submission Pipeline */}
-          <div className="lg:col-span-2 bg-slate-950/20 p-5 rounded-2xl border border-white/5 flex flex-col justify-between" id="submission-funnel-panel">
-            <div>
-              <h3 className="font-semibold text-white text-sm mb-1 font-display">Application Submission Status</h3>
-              <p className="text-xs text-slate-400 mb-4">Real-time status tracking of save list submissions.</p>
-            </div>
-            
-            <div className="h-56" id="status-bar-chart">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
-                  <XAxis dataKey="name" stroke="#64748B" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#64748B" fontSize={11} tickLine={false} allowDecimals={false} />
-                  <Tooltip 
-                    cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
-                    contentStyle={{ background: '#0f172a', borderRadius: '12px', border: '1px solid rgba(255, 255, 255, 0.1)' }}
-                    labelStyle={{ color: '#F9FAFB', fontWeight: 'bold', fontSize: '11px' }}
-                    itemStyle={{ color: '#94A3B8', fontSize: '11px' }}
-                  />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                    {chartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Position Breakdown Metrics (FT vs Contract) */}
-          <div className="bg-slate-950/20 p-5 rounded-2xl border border-white/5 flex flex-col justify-between" id="position-type-stats-panel">
-            <div>
-              <h3 className="font-semibold text-white text-sm mb-1 font-display">Position Structure Metrics</h3>
-              <p className="text-xs text-slate-400 mb-6">Aggregate distribution of position scope in your pipeline.</p>
-            </div>
-
-            <div className="space-y-4">
-              {typesData.map((t, idx) => {
-                const percentage = totalSaved > 0 ? Math.round((t.value / totalSaved) * 100) : 0;
-                return (
-                  <div key={idx} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="text-slate-300">{t.label} ({t.value})</span>
-                      <span className="text-slate-500">{percentage}%</span>
-                    </div>
-                    <div className="w-full bg-slate-900/60 h-2 rounded-full overflow-hidden border border-white/5">
-                      <div className={`${t.color} h-full transition-all duration-500`} style={{ width: `${percentage}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="pt-5 border-t border-white/10 mt-6 grid grid-cols-2 gap-4 text-center">
-              <div className="bg-slate-950/45 p-2.5 rounded-xl border border-white/5">
-                <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400 block">W2 Positions</span>
-                <span className="text-base font-bold text-white mt-1 block">{w2Count}</span>
-              </div>
-              <div className="bg-slate-950/45 p-2.5 rounded-xl border border-white/5">
-                <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400 block">C2C/1099 Rates</span>
-                <span className="text-base font-bold text-white mt-1 block">{nonW2Count}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Manual Add Form */}
       {showAddForm && (
-        <div className="rounded-2xl border border-indigo-500/20 bg-indigo-950/15 p-5 space-y-4 animate-fade-in">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono flex items-center gap-1.5">
-            <Plus className="w-3.5 h-3.5" /> Manual Job Entry
-          </h3>
+        <ManualAddForm
+          onAddJob={handleAddManualJob}
+          onClose={() => setShowAddForm(false)}
+        />
+      )}
 
-          {/* Row 1: Title + Company */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Job Title <span className="text-rose-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={form.title}
-                onChange={e => handleFormChange('title', e.target.value)}
-                placeholder="e.g. Senior Software Engineer"
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Company <span className="text-rose-400">*</span>
-              </label>
-              <input
-                type="text"
-                value={form.company}
-                onChange={e => handleFormChange('company', e.target.value)}
-                placeholder="e.g. Acme Corp"
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
-              />
-            </div>
-          </div>
-
-          {/* Row 2: Location + Type + Match Score */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Location <span className="text-slate-600">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={form.location}
-                onChange={e => handleFormChange('location', e.target.value)}
-                placeholder="e.g. Remote, San Francisco CA"
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
-              />
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Position Type
-              </label>
-              <select
-                value={form.type}
-                onChange={e => handleFormChange('type', e.target.value)}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-              >
-                <option value="Full-Time">Full-Time</option>
-                <option value="Contract">Contract</option>
-                <option value="Part-Time">Part-Time</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
-                Match Rating 0–100 <span className="text-slate-600">(optional)</span>
-              </label>
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={form.matchScore}
-                onChange={e => handleFormChange('matchScore', e.target.value)}
-                placeholder="e.g. 85"
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600 font-mono"
-              />
-            </div>
-          </div>
-
-          {/* Row 3: Application URL */}
-          <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-              <Link className="w-3 h-3" /> Application URL <span className="text-slate-600">(optional)</span>
-            </label>
-            <input
-              type="url"
-              value={form.url}
-              onChange={e => handleFormChange('url', e.target.value)}
-              placeholder="https://jobs.example.com/apply/12345"
-              className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600 font-mono"
-            />
-          </div>
-
-          {/* Row 4: Description */}
-          <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1">
-              <FileText className="w-3 h-3" /> Job Description <span className="text-slate-600">(optional)</span>
-            </label>
-            <textarea
-              value={form.description}
-              onChange={e => handleFormChange('description', e.target.value)}
-              placeholder="Paste or summarise the job description..."
-              rows={3}
-              className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600 resize-none"
-            />
-          </div>
-
-          {formError && (
-            <p className="text-xs text-rose-400 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5" /> {formError}
-            </p>
-          )}
-
-          <button
-            onClick={handleAddManual}
-            className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-md shadow-indigo-500/15"
-          >
-            <Plus className="w-3.5 h-3.5" /> Add to Tracker
-          </button>
-        </div>
-      )}      {/* Filter and search control bar */}
+      {/* Filter and search control bar */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-grow">
-          <Search className="w-4 h-4 text-slate-450 absolute left-3.5 top-3" />
+          <Search className="w-4 h-4 text-slate-455 absolute left-3.5 top-3" />
           <input
             type="text"
             value={filterSearch}
             onChange={(e) => setFilterSearch(e.target.value)}
             placeholder="Search saved positions by title or company name..."
-            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900/30 text-white placeholder-slate-650"
+            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900/30 text-white placeholder-slate-655"
           />
         </div>
 
@@ -501,299 +153,21 @@ export default function SubmissionTracker({
 
       {sortedJobs.length === 0 ? (
         <div className="py-16 text-center text-slate-400 border border-dashed border-white/10 rounded-2xl">
-          <AlertCircle className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+          <AlertCircle className="w-10 h-10 text-slate-550 mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-300">No saved submissions tracked with current parameters.</p>
           <p className="text-xs text-slate-500 mt-1">Trigger a Daily Scan and click &quot;Save &amp; Log Submission&quot; to log items here, or use &quot;Add Manually&quot; above.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="submission-pipeline-cards">
-          {sortedJobs.map((j) => {
-            const currentStatusObj = statuses.find((s) => s.value === j.status);
-            const isDescOpen = expandedDesc.has(j.id);
-            const hasDesc = !!j.description?.trim();
-            const hasUrl = !!j.url?.trim();
-            const hasScore = j.matchScore > 0;
-            const isEditing = editingJobId === j.id && editForm !== null;
-
-            if (isEditing) {
-              return (
-                <div key={j.id} className="border border-indigo-500/30 rounded-2xl p-5 bg-indigo-950/15 hover:border-indigo-500/40 transition-all space-y-4 shadow-md">
-                  {/* Edit Header */}
-                  <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-mono flex items-center gap-1.5">
-                      <Edit2 className="w-3.5 h-3.5" /> Edit Submission Details
-                    </span>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-900 border border-white/15 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-
-                  {/* Form inputs */}
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Job Title
-                        </label>
-                        <input
-                          type="text"
-                          value={editForm.title}
-                          onChange={e => handleEditFormChange('title', e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Company Name
-                        </label>
-                        <input
-                          type="text"
-                          value={editForm.company}
-                          onChange={e => handleEditFormChange('company', e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Location
-                        </label>
-                        <input
-                          type="text"
-                          value={editForm.location}
-                          onChange={e => handleEditFormChange('location', e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Position Type
-                        </label>
-                        <select
-                          value={editForm.type}
-                          onChange={e => handleEditFormChange('type', e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                        >
-                          <option value="Full-Time">Full-Time</option>
-                          <option value="Contract">Contract</option>
-                          <option value="Part-Time">Part-Time</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 items-end">
-                      <div className="col-span-2">
-                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Application URL
-                        </label>
-                        <input
-                          type="url"
-                          value={editForm.url}
-                          onChange={e => handleEditFormChange('url', e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                          Score (0-100)
-                        </label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          value={editForm.matchScore}
-                          onChange={e => handleEditFormChange('matchScore', e.target.value)}
-                          className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">
-                        Description
-                      </label>
-                      <textarea
-                        value={editForm.description}
-                        onChange={e => handleEditFormChange('description', e.target.value)}
-                        rows={3}
-                        className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-slate-950 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none font-sans"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2 border-t border-white/5">
-                    <button
-                      onClick={() => handleSaveEdit(j.id)}
-                      className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition-colors cursor-pointer shadow-md shadow-indigo-500/15"
-                    >
-                      <Save className="w-3.5 h-3.5" /> Save Changes
-                    </button>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="text-xs font-semibold px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-950 border border-white/5 text-slate-350 transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <div key={j.id} className="border border-white/10 rounded-2xl p-5 hover:border-indigo-500/20 bg-slate-900/30 hover:bg-slate-900/40 transition-all space-y-4 shadow-md">
-                {/* Header row */}
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1 min-w-0">
-                    <h3 className="font-bold text-white text-sm font-display tracking-tight leading-snug">{j.title}</h3>
-                    <div className="flex items-center gap-2 text-xs text-slate-400 font-semibold flex-wrap">
-                      <span className="flex items-center gap-1 text-slate-300">
-                        <Building className="w-3.5 h-3.5 text-indigo-400" /> {j.company}
-                      </span>
-                      <span className="text-slate-655">•</span>
-                      <span className="flex items-center gap-1 font-normal text-slate-400">
-                        <MapPin className="w-3.5 h-3.5 text-slate-550" /> {j.location}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => handleStartEdit(j)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-white/5 transition-colors"
-                      title="Edit Job Details"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => onRemoveJob(j.id)}
-                      className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-white/5 transition-colors"
-                      title="Remove from history"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Meta row: date, type, match score, link */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-400 bg-slate-950 px-2 py-1 rounded-lg border border-white/5">
-                    <Calendar className="w-3 h-3 text-indigo-400" />
-                    {j.appliedDate ? new Date(j.appliedDate).toLocaleDateString() : 'Unknown'}
-                  </span>
-
-                  <span className="text-[10px] font-bold uppercase text-indigo-400 bg-indigo-950/30 border border-indigo-500/15 px-2 py-1 rounded-lg font-mono">
-                    {j.type}
-                  </span>
-
-                  {hasScore && (
-                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-1 rounded-lg border ${scoreColor(j.matchScore)}`}>
-                      <Star className="w-2.5 h-2.5" />
-                      {j.matchScore}% Match
-                    </span>
-                  )}
-
-                  {j.sourceTag && (
-                    <span className={`inline-flex items-center text-[10px] font-bold border uppercase tracking-wider px-2 py-1 rounded-lg ${
-                      j.sourceTag === 'hackernews' ? 'bg-orange-950/45 border-orange-500/20 text-orange-400' :
-                      j.sourceTag === 'remotive' ? 'bg-purple-950/45 border-purple-500/20 text-purple-400' :
-                      j.sourceTag === 'remoteok' ? 'bg-pink-950/45 border-pink-500/20 text-pink-400' :
-                      j.sourceTag === 'greenhouse' ? 'bg-emerald-950/45 border-emerald-500/20 text-emerald-400' :
-                      j.sourceTag === 'lever' ? 'bg-teal-950/45 border-teal-500/20 text-teal-400' :
-                      j.sourceTag === 'ashby' ? 'bg-cyan-950/45 border-cyan-500/20 text-cyan-400' :
-                      j.sourceTag === 'workday' ? 'bg-blue-950/45 border-blue-500/20 text-blue-400' :
-                      j.sourceTag === 'smartrecruiters' ? 'bg-violet-950/45 border-violet-500/20 text-violet-400' :
-                      'bg-slate-950 border-white/5 text-slate-350 font-mono'
-                    }`}>
-                      {j.sourceTag === 'hackernews' ? 'Hacker News' : j.sourceTag}
-                    </span>
-                  )}
-
-                  {j.retryTier !== undefined && j.retryTier >= 1 && (
-                    <span 
-                      className="inline-flex items-center gap-1 text-[10px] font-bold font-mono px-2 py-1 rounded-lg bg-amber-950/40 border border-amber-500/20 text-amber-400 cursor-help"
-                      title={`This job was evaluated with reduced context (Tier ${j.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
-                    >
-                      ⚠️ Reduced Context
-                    </span>
-                  )}
-
-                  {hasUrl && (
-                    <a
-                      href={j.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-300 hover:text-indigo-200 bg-indigo-950/25 hover:bg-indigo-950/40 border border-indigo-500/20 px-2 py-1 rounded-lg transition-colors"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      Open Posting
-                    </a>
-                  )}
-                </div>
-
-                {/* Collapsible description */}
-                {hasDesc && (
-                  <div>
-                    <button
-                      onClick={() => toggleDesc(j.id)}
-                      className="flex items-center gap-1 text-[10px] font-semibold text-slate-450 hover:text-slate-300 transition-colors cursor-pointer"
-                    >
-                      {isDescOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      {isDescOpen ? 'Hide' : 'Show'} Job Description
-                    </button>
-                    {isDescOpen && (
-                      <div className="mt-2 p-3 rounded-xl bg-slate-950/60 border border-white/5 text-[11px] text-slate-300 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto">
-                        {j.description}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Match reason (if available and score shown) */}
-                {hasScore && j.matchReason && (
-                  <p className="text-[10px] text-slate-400 italic leading-relaxed border-l-2 border-indigo-500/30 pl-2">
-                    {j.matchReason}
-                  </p>
-                )}
-
-                {/* Custom Notes Section */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase font-semibold text-slate-450 flex items-center gap-1 leading-none">
-                    <Paperclip className="w-3.5 h-3.5 text-indigo-400" />
-                    Custom Submission Log Notes
-                  </label>
-                  <textarea
-                    value={j.notes || ''}
-                    onChange={(e) => onUpdateJobStatus(j.id, j.status, e.target.value)}
-                    placeholder="Enter personal notes about this application (e.g. interviewer names, emails, timeline)..."
-                    className="w-full h-16 p-2 rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-950 text-xs text-slate-200 resize-none placeholder-slate-650"
-                  />
-                </div>
-
-                {/* Status picker */}
-                <div className="flex items-center justify-between gap-3 pt-2 border-t border-white/5">
-                  <span className="text-[10px] uppercase font-semibold text-slate-450 flex items-center gap-1">
-                    <CheckSquare className="w-3.5 h-3.5 text-indigo-400" />
-                    Status Tracker
-                  </span>
-
-                  <select
-                    value={j.status}
-                    onChange={(e) => onUpdateJobStatus(j.id, e.target.value as JobStatusType, j.notes)}
-                    className={`text-xs font-semibold px-3 py-1.5 rounded-xl border focus:outline-none bg-slate-950 cursor-pointer ${currentStatusObj?.color || 'bg-slate-950 border-white/10 text-slate-300'}`}
-                  >
-                    {statuses.map((stat) => (
-                      <option key={stat.value} value={stat.value} className="bg-slate-950">{stat.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            );
-          })}
+          {sortedJobs.map((j) => (
+            <TrackedJobCard
+              key={j.id}
+              job={j}
+              onUpdateJobStatus={onUpdateJobStatus}
+              onRemoveJob={onRemoveJob}
+              onUpdateJobDetails={onUpdateJobDetails}
+            />
+          ))}
         </div>
       )}
     </div>

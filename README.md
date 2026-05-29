@@ -5,16 +5,18 @@
 [![React](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-61dafb.svg)](https://react.dev/)
 [![Express](https://img.shields.io/badge/Backend-Express%20%2B%20Node-lightgrey.svg)](https://expressjs.com/)
 
-A premium, agentic job search cockpit designed to automate candidate job matching, description evaluation, and pipeline logging. The agent crawls major Applicant Tracking Systems (ATS) directly, performs Google Search grounding to expand coverage, evaluates listings against your resume, and tracks your submissions with zero database configuration.
+A premium, agentic job search cockpit designed to automate candidate job matching, description evaluation, and pipeline logging. The agent crawls major enterprise Applicant Tracking Systems (ATS) directly (Greenhouse, Lever, Ashby, and Workday), evaluates listings against your resume, and tracks your submissions with zero database configuration.
 
 ---
 
 ## 🌟 Key Features
 
 ### 1. Multi-Channel ATS Sourcing Pipeline
-* **Direct ATS Crawlers**: Scrapes listings directly from public endpoints for **Greenhouse** and **Lever**.
-* **Workday & SmartRecruiters Fetchers**: Scrapes Workday CXS JSON endpoints (e.g. Nvidia, Salesforce, Walmart, Adobe) and SmartRecruiters (e.g. Visa, IKEA) using user-agent rotation and multi-tenant health checks.
-* **Aggregators & RSS**: Pulls remote tech roles from **RemoteOK** in real-time.
+* **Direct ATS Crawlers**: Scrapes listings directly from public endpoints for **Greenhouse** and **Lever** (such as Palantir).
+* **Ashby & Workday Sourcing**: Full native integration for **Ashby** (e.g., Linear, PostHog, Vercel, Supabase) and **Workday** (e.g., Nvidia, Salesforce, Capital One, Autodesk, Dell, Target, Intel, PayPal, HP, NXP).
+* **Paced Batching & Reliability**: Executes requests in small parallel groups (batches of 3 for Workday, 4 for Ashby, 8 for Greenhouse) alongside sequential health checks. This completely resolves socket exhaustion, DNS lookup hangs, and rate-limiting.
+* **Workday Tenant Cluster Routing**: Dynamically routes API requests directly to each tenant's specific Workday cluster subdomain (e.g., `nvidia.wd5.myworkdayjobs.com` or `salesforce.wd12.myworkdayjobs.com`) rather than generic subdomains, ensuring successful connections.
+* **Focus on Quality Direct Sources**: Bypasses secondary aggregators (RemoteOK, Remotive) and social boards (Hacker News) to ensure the scanner focuses exclusively on legitimate direct employer postings.
 * **Weekly Registry Updates**: Synchronizes company lists weekly from a remote registry, falling back to static lists when offline.
 * **Round-Robin Fair Shuffling**: Distributes matching jobs evenly across different companies to avoid results flooding.
 

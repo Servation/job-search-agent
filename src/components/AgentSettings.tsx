@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Settings, Cpu, ShieldAlert, Check, Layers, MapPin, CheckSquare, Square } from 'lucide-react';
+import { Settings, Cpu, ShieldAlert, Check, Layers, MapPin, CheckSquare, Square, X } from 'lucide-react';
 import { LLMConfig, ResumeProfile, JobTypeType } from '../types';
 
 interface AgentSettingsProps {
@@ -24,6 +24,31 @@ export default function AgentSettings({
 }: AgentSettingsProps) {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle');
   const [testError, setTestError] = useState<string | null>(null);
+  const [newBlockedCompany, setNewBlockedCompany] = useState('');
+
+  const handleAddBlock = () => {
+    const cleanCompany = newBlockedCompany.trim();
+    if (!cleanCompany) return;
+
+    const currentBlocks = profile.blockedCompanies || [];
+    const isAlreadyBlocked = currentBlocks.some(bc => bc.toLowerCase().trim() === cleanCompany.toLowerCase().trim());
+
+    if (!isAlreadyBlocked) {
+      onChangeProfile({
+        ...profile,
+        blockedCompanies: [...currentBlocks, cleanCompany]
+      });
+    }
+    setNewBlockedCompany('');
+  };
+
+  const handleRemoveBlock = (companyToRemove: string) => {
+    const currentBlocks = profile.blockedCompanies || [];
+    onChangeProfile({
+      ...profile,
+      blockedCompanies: currentBlocks.filter(bc => bc !== companyToRemove)
+    });
+  };
 
   const testConnection = async () => {
     setTestStatus('testing');
@@ -469,6 +494,58 @@ export default function AgentSettings({
               When checked, prevents any single company from flooding your discovered list. If a company already has the set number of matching jobs, additional jobs from that company are ignored.
             </p>
           </div>
+        </div>
+      </div>
+
+      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-blocklist-settings">
+        <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
+          <ShieldAlert className="w-5 h-5 text-red-400" />
+          Blocked Companies Blocklist
+        </h3>
+        
+        <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <div className="flex-grow">
+              <input
+                type="text"
+                value={newBlockedCompany}
+                onChange={(e) => setNewBlockedCompany(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBlock(); } }}
+                placeholder="Enter company name to block (e.g. Nvidia, Facebook)..."
+                className="w-full px-3 py-2 text-xs bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAddBlock}
+              className="px-4 py-2 bg-red-650 hover:bg-red-750 text-white font-semibold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer"
+            >
+              Block Company
+            </button>
+          </div>
+
+          {profile.blockedCompanies && profile.blockedCompanies.length > 0 ? (
+            <div className="flex flex-wrap gap-2 pt-2">
+              {profile.blockedCompanies.map((company, index) => (
+                <span
+                  key={index}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold bg-red-950/20 border border-red-500/15 text-red-300 animate-fade-in"
+                >
+                  {company}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveBlock(company)}
+                    className="p-0.5 rounded-full hover:bg-red-950/60 text-red-450 hover:text-red-350 transition-colors cursor-pointer"
+                    title={`Unblock ${company}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-550 italic">No companies blocked yet. You can block companies from the discovered postings board or add them manually above.</p>
+          )}
         </div>
       </div>
     </div>

@@ -179,6 +179,20 @@ export default function App() {
     return [];
   });
 
+  const [scannedJobs, setScannedJobs] = useState<Job[]>(() => {
+    const cached = localStorage.getItem('job_agent_scanned_jobs');
+    if (cached) {
+      try { return JSON.parse(cached); } catch (e) { /* ignore */ }
+    }
+    return [];
+  });
+
+  const [currentlyRefiningJobId, setCurrentlyRefiningJobId] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('job_agent_scanned_jobs', JSON.stringify(scannedJobs));
+  }, [scannedJobs]);
+
   const [dismissedJobs, setDismissedJobs] = useState<Job[]>(() => {
     const cached = localStorage.getItem('job_agent_dismissed_jobs');
     if (cached) {
@@ -202,30 +216,38 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('job_agent_dismissed_job_keys', JSON.stringify(dismissedJobKeys));
-  }, [dismissedJobKeys]);
+    const computed = dismissedJobs.map(j => `${j.company.toLowerCase().trim()}|${j.title.toLowerCase().trim()}`);
+    setDismissedJobKeys(computed);
+    localStorage.setItem('job_agent_dismissed_job_keys', JSON.stringify(computed));
+  }, [dismissedJobs]);
+
+  const performJobAction = async (action: string, payload: any) => {
+    try {
+      const response = await fetch('/api/jobs/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...payload })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.db) {
+          if (data.db.scannedJobs && !isAiRunning) setScannedJobs(data.db.scannedJobs);
+          if (data.db.watchlist) setWatchlist(data.db.watchlist);
+          if (data.db.savedJobs) setSavedJobs(data.db.savedJobs);
+          if (data.db.dismissedJobs) setDismissedJobs(data.db.dismissedJobs);
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to perform job action ${action}:`, err);
+    }
+  };
 
   const handleDismissJob = (job: Job) => {
-    setDismissedJobs((prev) => {
-      if (!prev.some(j => j.id === job.id || (j.title.toLowerCase() === job.title.toLowerCase() && j.company.toLowerCase() === job.company.toLowerCase()))) {
-        return [job, ...prev];
-      }
-      return prev;
-    });
-
-    const key = `${job.company.toLowerCase().trim()}|${job.title.toLowerCase().trim()}`;
-    setDismissedJobKeys((prev) => {
-      if (!prev.includes(key)) {
-        return [...prev, key];
-      }
-      return prev;
-    });
+    performJobAction('dismiss', { job });
   };
 
   const handleUndismissJob = (job: Job) => {
-    setDismissedJobs((prev) => prev.filter(j => j.id !== job.id && (j.title.toLowerCase() !== job.title.toLowerCase() || j.company.toLowerCase() !== job.company.toLowerCase())));
-    const key = `${job.company.toLowerCase().trim()}|${job.title.toLowerCase().trim()}`;
-    setDismissedJobKeys((prev) => prev.filter(k => k !== key));
+    performJobAction('undismiss', { job });
   };
 
   // Client-facing AI Real-time Event System
@@ -244,11 +266,51 @@ export default function App() {
   });
 
   const [isAiRunning, setIsAiRunning] = useState(false);
+  const [ralphMode, setRalphMode] = useState<boolean>(() => {
+    return localStorage.getItem('job_agent_ralph_mode') === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('job_agent_ralph_mode', String(ralphMode));
+  }, [ralphMode]);
+
+  const RALPH_QUOTES = [
+    "I'm helping!",
+    "I'm a computer!",
+    "Look Daddy, I'm a programmer!",
+    "My cat's breath smells like cat food.",
+    "I runned around the block!",
+    "I found a spoon!",
+    "Hi, principal Skinner! I'm scanning!",
+    "I'm in danger!",
+    "This job is too far, like the moon!",
+    "Me fail English? That's unpossible!",
+    "That's where I saw the leprechaun. He tells me to burn things.",
+    "Oh boy, a skip! I'm helping by doing nothing!",
+    "I bent my wookie.",
+    "And I'm a gold star!",
+    "Oh boy, sleep! That's where I'm a viking!",
+    "My nose is bleeding from the thinking.",
+    "Yay! I'm winning!",
+    "The doctor said I wouldn't have so many nosebleeds if I kept my finger out of there.",
+    "It tastes like burning!",
+    "I'm a unitard!",
+    "Super Nintendo Chalmers!",
+    "I did it! I'm a helper!",
+    "And the doctor said my sugar level is too high!",
+    "Everyone is hugging!"
+  ];
 
   const addAiLog = (msg: string) => {
     const timeStr = new Date().toLocaleTimeString();
+    let finalMsg = msg;
+    if (ralphMode && !msg.trim().startsWith('[Ralph:')) {
+      const randomQuote = RALPH_QUOTES[Math.floor(Math.random() * RALPH_QUOTES.length)];
+      finalMsg = `[Ralph: "${randomQuote}"] ${msg}`;
+    }
+
     setAiLogs((prev) => {
-      const updated = [`[${timeStr}] ${msg}`, ...prev].slice(0, 150);
+      const updated = [`[${timeStr}] ${finalMsg}`, ...prev].slice(0, 150);
       localStorage.setItem('job_agent_ai_logs', JSON.stringify(updated));
       return updated;
     });
@@ -265,22 +327,27 @@ export default function App() {
     const cached = localStorage.getItem('job_agent_stats');
     if (cached) {
       try {
-        return JSON.parse(cached);
+        const parsed = JSON.parse(cached);
+        return {
+          totalScanned: parsed.totalScanned || 0,
+          duplicatesPrevented: parsed.duplicatesPrevented || 0,
+          activeMatchesCount: parsed.activeMatchesCount || 0,
+          llmEvaluations: parsed.llmEvaluations || 0,
+          totalSourced: parsed.totalSourced || 0
+        };
       } catch (e) { /* ignore */ }
     }
     return {
       totalScanned: 0,
       duplicatesPrevented: 0,
       activeMatchesCount: 0,
+      llmEvaluations: 0,
+      totalSourced: 0
     };
   });
 
-  const handleUpdateStats = (scannedCount: number, duplicatesCount: number) => {
-    setStats(prev => ({
-      totalScanned: prev.totalScanned + scannedCount,
-      duplicatesPrevented: prev.duplicatesPrevented + duplicatesCount,
-      activeMatchesCount: prev.activeMatchesCount,
-    }));
+  const handleUpdateStats = (newStats: any) => {
+    setStats(newStats);
   };
 
   // Local storage caching effects
@@ -304,22 +371,187 @@ export default function App() {
     localStorage.setItem('job_agent_stats', JSON.stringify(stats));
   }, [stats]);
 
+  // Hydration on mount
+  useEffect(() => {
+    const hydrateState = async () => {
+      try {
+        const res = await fetch('/api/jobs/sync');
+        if (res.ok) {
+          const data = await res.json();
+          
+          // Check if server database is empty/fresh
+          const isServerDbEmpty = 
+            (!data.scannedJobs || data.scannedJobs.length === 0) &&
+            (!data.watchlist || data.watchlist.length === 0) &&
+            (!data.savedJobs || data.savedJobs.length === 0) &&
+            (!data.dismissedJobs || data.dismissedJobs.length === 0) &&
+            (!data.profile || !data.profile.rawText);
+            
+          if (isServerDbEmpty) {
+            // Server is empty. If client has local storage data, sync/upload client data to server.
+            const cachedScanned = localStorage.getItem('job_agent_scanned_jobs');
+            const cachedSaved = localStorage.getItem('job_agent_saved_jobs');
+            const cachedWatchlist = localStorage.getItem('job_agent_watchlist');
+            const cachedDismissed = localStorage.getItem('job_agent_dismissed_jobs');
+            const cachedProfile = localStorage.getItem('job_agent_profile');
+            const cachedLlmConfig = localStorage.getItem('job_agent_llm_config');
+            
+            const cachedStats = localStorage.getItem('job_agent_stats');
+            
+            let localScanned = [];
+            let localSaved = [];
+            let localWatchlist = [];
+            let localDismissed = [];
+            let localProfile = null;
+            let localLlmConfig = null;
+            let localStats = null;
+            
+            try { if (cachedScanned) localScanned = JSON.parse(cachedScanned); } catch(e){}
+            try { if (cachedSaved) localSaved = JSON.parse(cachedSaved); } catch(e){}
+            try { if (cachedWatchlist) localWatchlist = JSON.parse(cachedWatchlist); } catch(e){}
+            try { if (cachedDismissed) localDismissed = JSON.parse(cachedDismissed); } catch(e){}
+            try { if (cachedProfile) localProfile = JSON.parse(cachedProfile); } catch(e){}
+            try { if (cachedLlmConfig) localLlmConfig = JSON.parse(cachedLlmConfig); } catch(e){}
+            try { if (cachedStats) localStats = JSON.parse(cachedStats); } catch(e){}
+            
+            const hasLocalData = 
+              localScanned.length > 0 || 
+              localSaved.length > 0 || 
+              localWatchlist.length > 0 || 
+              localDismissed.length > 0 || 
+              (localProfile && localProfile.rawText);
+              
+            if (hasLocalData) {
+              // Upload local data to server
+              await fetch('/api/jobs/action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'sync_client_data',
+                  scannedJobs: localScanned,
+                  savedJobs: localSaved,
+                  watchlist: localWatchlist,
+                  dismissedJobs: localDismissed,
+                  profile: localProfile,
+                  llmConfig: localLlmConfig,
+                  stats: localStats || stats
+                })
+              });
+              
+              // Load the client state from local storage values
+              if (localScanned.length) setScannedJobs(localScanned);
+              if (localSaved.length) setSavedJobs(localSaved);
+              if (localWatchlist.length) setWatchlist(localWatchlist);
+              if (localDismissed.length) setDismissedJobs(localDismissed);
+              if (localProfile) setProfile(localProfile);
+              if (localLlmConfig) setLlmConfig(localLlmConfig);
+              if (localStats) setStats(localStats);
+              
+              return;
+            }
+          }
+          
+          if (data.scannedJobs) setScannedJobs(data.scannedJobs);
+          if (data.watchlist) setWatchlist(data.watchlist);
+          if (data.savedJobs) setSavedJobs(data.savedJobs);
+          if (data.dismissedJobs) setDismissedJobs(data.dismissedJobs);
+          if (data.profile) setProfile(data.profile);
+          if (data.llmConfig) setLlmConfig(data.llmConfig);
+          if (data.stats) setStats(data.stats);
+        }
+      } catch (err) {
+        console.error('Failed to hydrate state from server:', err);
+      }
+    };
+    hydrateState();
+  }, []);
+
+  // Polling loop to fetch logs and database updates in the background
+  useEffect(() => {
+    let active = true;
+
+    const runPoll = async (isManual = false) => {
+      // Only poll when the document is focused to save network resources, unless manually forced
+      if (!document.hasFocus() && !isManual) return;
+      
+      try {
+        const response = await fetch('/api/jobs/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (response.ok && active) {
+          const data = await response.json();
+          if (data.success && data.db) {
+            // Update lists if the server values exist
+            if (data.db.scannedJobs) setScannedJobs(data.db.scannedJobs);
+            if (data.db.watchlist) setWatchlist(data.db.watchlist);
+            if (data.db.savedJobs) setSavedJobs(data.db.savedJobs);
+            if (data.db.dismissedJobs) setDismissedJobs(data.db.dismissedJobs);
+            if (data.db.stats) setStats(data.db.stats);
+            
+            // Set currently refining ID
+            setCurrentlyRefiningJobId(data.currentlyRefiningJobId || null);
+            
+            // Append new logs from background
+            if (data.newLogs && data.newLogs.length > 0) {
+              data.newLogs.forEach((msg: string) => {
+                addAiLog(msg);
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[Polling] Failed to poll background refiner status:', err);
+      }
+    };
+
+    const pollInterval = setInterval(() => runPoll(false), 10000); // Poll every 10 seconds
+
+    // Instantly poll when the tab/window gains focus
+    const handleFocus = () => {
+      runPoll(true);
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // Initial poll
+    runPoll(true);
+
+    return () => {
+      active = false;
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  // Sync profile and config on changes
+  useEffect(() => {
+    const syncProfile = async () => {
+      try {
+        await fetch('/api/profile/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile, llmConfig })
+        });
+      } catch (err) {
+        console.error('Failed to sync profile/config with server:', err);
+      }
+    };
+    if (profile.rawText) {
+      syncProfile();
+    }
+  }, [profile, llmConfig]);
+
+
+
   const handleAddJobs = (newJobs: Job[]) => {
-    // Add non-duplicate jobs to tracking board
     const filtered = newJobs.filter(
       (nj) => !savedJobs.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase())
     );
     filtered.forEach((nj) => {
       addAiLog(`User: Saved job "${nj.title}" at ${nj.company} to tracking board.`);
     });
-    if (filtered.length > 0) {
-      setSavedJobs((prev) => [...filtered, ...prev]);
-    }
-
-    // Also remove from watchlist if saved to tracker
-    newJobs.forEach((nj) => {
-      setWatchlist((prev) => prev.filter((wj) => !(wj.title.toLowerCase() === nj.title.toLowerCase() && wj.company.toLowerCase() === nj.company.toLowerCase())));
-    });
+    performJobAction('save', { jobs: newJobs });
   };
 
   const handleAddToWatchlist = (newJobs: Job[]) => {
@@ -331,18 +563,15 @@ export default function App() {
     filtered.forEach((nj) => {
       addAiLog(`User: Added job "${nj.title}" at ${nj.company} to watchlist.`);
     });
-    if (filtered.length > 0) {
-      setWatchlist((prev) => [...filtered, ...prev]);
-    }
+    performJobAction('watchlist', { jobs: newJobs });
   };
 
   const handleRemoveFromWatchlist = (id: string) => {
     const job = watchlist.find((j) => j.id === id);
     if (job) {
-      handleDismissJob(job);
       addAiLog(`User: Removed job "${job.title}" at ${job.company} from watchlist (added to dismissed blocklist).`);
     }
-    setWatchlist((prev) => prev.filter((j) => j.id !== id));
+    performJobAction('remove_watchlist', { id });
   };
 
   const handleUpdateJobStatus = (id: string, status: 'discovered' | 'applied' | 'review' | 'interviewing' | 'offered' | 'rejected', notes?: string) => {
@@ -350,18 +579,15 @@ export default function App() {
     if (job) {
       addAiLog(`User: Updated job "${job.title}" at ${job.company} status to "${status}".`);
     }
-    setSavedJobs((prev) =>
-      prev.map((job) => (job.id === id ? { ...job, status, notes, appliedDate: status === 'applied' && !job.appliedDate ? new Date().toISOString() : job.appliedDate } : job))
-    );
+    performJobAction('update_status', { id, status, notes });
   };
 
   const handleRemoveJob = (id: string) => {
     const job = savedJobs.find((j) => j.id === id);
     if (job) {
-      handleDismissJob(job);
       addAiLog(`User: Removed job "${job.title}" at ${job.company} from board (added to dismissed blocklist).`);
     }
-    setSavedJobs((prev) => prev.filter((j) => j.id !== id));
+    performJobAction('remove_saved', { id });
   };
 
   const handleUpdateJobDetails = (id: string, updatedFields: Partial<Job>) => {
@@ -369,9 +595,7 @@ export default function App() {
     if (job) {
       addAiLog(`User: Updated details for job "${job.title}" at ${job.company}.`);
     }
-    setSavedJobs((prev) =>
-      prev.map((j) => (j.id === id ? { ...j, ...updatedFields } : j))
-    );
+    performJobAction('update_details', { id, updatedFields });
   };
 
   const handleParseComplete = (parsed: { name?: string; skills?: string[]; roles?: string[]; location?: string }) => {
@@ -441,7 +665,7 @@ export default function App() {
         )}
 
         {/* Dashboard statistics aggregation overview */}
-        <DashboardStats jobs={savedJobs} stats={stats} />
+        <DashboardStats stats={stats} />
 
         {/* Dynamic Prompt to run a scan when settings/profile has changed since last scan */}
         {hasChangesSinceLastScan && activeTab !== 'scanner' && profile.rawText && (
@@ -552,9 +776,12 @@ export default function App() {
           {activeTab === 'scanner' && (
             <JobScanner
               profile={profile}
+              onChangeProfile={setProfile}
               llmConfig={llmConfig}
               savedJobs={savedJobs}
               watchlist={watchlist}
+              scannedJobs={scannedJobs}
+              setScannedJobs={setScannedJobs}
               dismissedJobs={dismissedJobs}
               dismissedJobKeys={dismissedJobKeys}
               onDismissJob={handleDismissJob}
@@ -574,6 +801,9 @@ export default function App() {
               shouldTriggerScan={shouldTriggerScan}
               onScanTriggered={() => setShouldTriggerScan(false)}
               onScanStarted={handleScanStarted}
+              currentlyRefiningJobId={currentlyRefiningJobId}
+              ralphMode={ralphMode}
+              setRalphMode={setRalphMode}
             />
           )}
 
