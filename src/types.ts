@@ -102,6 +102,7 @@ export interface WorkdayCompany {
   tenant: string;
   site: string;
   host?: string;
+  consecutiveFailures?: number;
 }
 
 export interface SmartRecruitersCompany {

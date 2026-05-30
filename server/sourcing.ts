@@ -4,7 +4,8 @@
  */
 
 import { WorkdayCompany, SmartRecruitersCompany } from '../src/types';
-import { globalState } from './config';
+import { globalState, addRefinerLog } from './config';
+import { readDb, writeDb } from './db';
 import { 
   communitySlugToName, 
   matchesKeywords, 
@@ -82,6 +83,141 @@ export async function updateCompanyDirectoriesFromRegistry(): Promise<void> {
   }
   // Even on failure, set the fetch timestamp to prevent slamming the request on every subsequent scan in the same run
   globalState.lastRegistryFetchTime = now;
+}
+
+export function parseWorkdayUrl(urlStr: string): { host: string; tenant: string; site: string } | null {
+  try {
+    if (!urlStr.includes('myworkdayjobs.com')) return null;
+    let cleanUrl = urlStr;
+    if (cleanUrl.includes('%3A%2F%2F')) {
+      cleanUrl = decodeURIComponent(cleanUrl);
+    }
+    const url = new URL(cleanUrl);
+    const host = url.hostname;
+    const subdomainParts = host.split('.');
+    const tenant = subdomainParts[0];
+    if (!tenant || tenant === 'www') return null;
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    let site = 'Careers'; // fallback default
+    if (pathParts.length > 0) {
+      const localeRegex = /^[a-z]{2}-[A-Z]{2}$/i;
+      if (localeRegex.test(pathParts[0])) {
+        if (pathParts[1] && pathParts[1] !== 'job') {
+          site = pathParts[1];
+        }
+      } else if (pathParts[0] !== 'job') {
+        site = pathParts[0];
+      }
+    }
+    return { host, tenant, site };
+  } catch {
+    return null;
+  }
+}
+
+export function harvestWorkdayUrl(urlStr: string): boolean {
+  const parsed = parseWorkdayUrl(urlStr);
+  if (!parsed) return false;
+
+  const db = readDb();
+  const cleanStr = (s: string) => s.toLowerCase().trim();
+  const tenantL = cleanStr(parsed.tenant);
+  const hostL = cleanStr(parsed.host);
+
+  // 1. Check if tenant is blocked
+  const blockedCompanies = db.profile?.blockedCompanies || [];
+  if (blockedCompanies.some(bc => cleanStr(bc) === tenantL)) {
+    return false;
+  }
+
+  // 2. Check if already in static directory
+  const isStatic = globalState.cachedWorkdayDirectory.some(
+    c => cleanStr(c.tenant) === tenantL || cleanStr(c.host || '') === hostL
+  );
+  if (isStatic) return false;
+
+  // 3. Check if already in dynamic directory
+  const dynamicDir = db.workdayDirectory || [];
+  const isDynamic = dynamicDir.some(
+    c => cleanStr(c.tenant) === tenantL || cleanStr(c.host || '') === hostL
+  );
+  if (isDynamic) return false;
+
+  // 4. Check if already in pending queue
+  const pendingQueue = db.pendingWorkdayValidation || [];
+  const isPending = pendingQueue.some(
+    p => cleanStr(p.tenant) === tenantL || cleanStr(p.host) === hostL
+  );
+  if (isPending) return false;
+
+  // Enqueue new candidate
+  db.pendingWorkdayValidation = pendingQueue;
+  db.pendingWorkdayValidation.push({
+    host: parsed.host,
+    tenant: parsed.tenant,
+    site: parsed.site,
+    consecutiveFailures: 0
+  });
+
+  writeDb(db);
+  const logMsg = `System Discovery: Harvested candidate Workday site for "${parsed.tenant}" (${parsed.host})`;
+  console.log(`[Discovery] Harvested candidate: ${parsed.tenant} (${parsed.host})`);
+  addRefinerLog(logMsg);
+  return true;
+}
+
+export async function validateWorkdayHost(
+  host: string,
+  tenant: string,
+  site: string
+): Promise<{ success: boolean; resolvedSite?: string }> {
+  const sitesToTry = Array.from(new Set([site, 'Careers', 'careers', 'External', 'Company_Careers', 'Job_Search']));
+  
+  for (const currentSite of sitesToTry) {
+    const searchUrl = `https://${host}/wday/cxs/${tenant}/${currentSite}/jobs`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 6000);
+    
+    try {
+      const response = await fetch(searchUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Origin': `https://${host}`,
+          'Referer': `https://${host}/en-US/${currentSite}/`
+        },
+        body: JSON.stringify({
+          searchText: '',
+          limit: 1,
+          offset: 0,
+          appliedFacets: {}
+        }),
+        signal: ctrl.signal
+      });
+      
+      clearTimeout(tid);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data && (Array.isArray(data.jobPostings) || data.total !== undefined)) {
+          return { success: true, resolvedSite: currentSite };
+        }
+      } else {
+        if (response.status === 422 || response.status === 403 || response.status === 429) {
+          console.log(`[Discovery] Validation failed for ${tenant} (${host}) on site ${currentSite}: HTTP ${response.status} (Access Blocked)`);
+          return { success: false };
+        }
+      }
+    } catch (err: any) {
+      clearTimeout(tid);
+      console.log(`[Discovery] Validation connection failed for ${tenant} (${host}) on site ${currentSite}:`, err.message);
+    }
+  }
+  
+  return { success: false };
 }
 
 // Helper to execute promises in batches to prevent socket exhaustion and rate-limiting
@@ -384,6 +520,31 @@ export async function fetchAshbyJobs(
   );
 }
 
+function updateDynamicCompanyFailure(company: WorkdayCompany, failed: boolean) {
+  const db = readDb();
+  if (!db.workdayDirectory) return;
+  const idx = db.workdayDirectory.findIndex(c => c.tenant.toLowerCase() === company.tenant.toLowerCase());
+  if (idx === -1) return; // Static company, we don't prune it here
+
+  const dynamicCompany = db.workdayDirectory[idx];
+  if (failed) {
+    dynamicCompany.consecutiveFailures = (dynamicCompany.consecutiveFailures || 0) + 1;
+    if (dynamicCompany.consecutiveFailures >= 5) {
+      console.log(`[Discovery] Automatically pruned dynamic Workday company "${dynamicCompany.name}" (${dynamicCompany.host}) after 5 consecutive failures.`);
+      addRefinerLog(`System Discovery: Pruned dynamic Workday company "${dynamicCompany.name}" due to 5 consecutive failures.`);
+      db.workdayDirectory.splice(idx, 1);
+    } else {
+      console.log(`[Discovery] Dynamic Workday company "${dynamicCompany.name}" failure count: ${dynamicCompany.consecutiveFailures}/5`);
+    }
+  } else {
+    if (dynamicCompany.consecutiveFailures && dynamicCompany.consecutiveFailures > 0) {
+      console.log(`[Discovery] Reset failure count for dynamic Workday company "${dynamicCompany.name}".`);
+      dynamicCompany.consecutiveFailures = 0;
+    }
+  }
+  writeDb(db);
+}
+
 export async function fetchWorkdayJobs(
   companies: WorkdayCompany[],
   keywords: string[],
@@ -392,9 +553,20 @@ export async function fetchWorkdayJobs(
   prefersRemote: boolean,
   yearsOfExperience: number = 0
 ): Promise<RawCommunityJob[]> {
+  const db = readDb();
+  const dynamicCompanies = db.workdayDirectory || [];
+  const mergedCompanies = [...companies];
+  const seenTenants = new Set(mergedCompanies.map(c => c.tenant.toLowerCase()));
+  for (const c of dynamicCompanies) {
+    if (!seenTenants.has(c.tenant.toLowerCase())) {
+      mergedCompanies.push(c);
+      seenTenants.add(c.tenant.toLowerCase());
+    }
+  }
+
   // Batch Workday fetches in groups of 3 to avoid timeouts and rate-limiting
   return batchPromises(
-    companies,
+    mergedCompanies,
     async (company): Promise<RawCommunityJob[]> => {
       const ctrl = new AbortController();
       const tid = setTimeout(() => ctrl.abort(), 12000); // 12s timeout per company
@@ -426,10 +598,12 @@ export async function fetchWorkdayJobs(
         
         if (!response.ok) {
           console.warn(`[Workday] Fetch failed for ${company.name} (${host}): HTTP ${response.status}`);
+          updateDynamicCompanyFailure(company, true);
           return [];
         }
         
         const data = await response.json();
+        updateDynamicCompanyFailure(company, false);
         const postings = (data.jobPostings || []) as any[];
         
         const matchingPostings = postings.filter(p => {
@@ -510,6 +684,7 @@ export async function fetchWorkdayJobs(
       } catch (err: any) {
         clearTimeout(tid);
         console.warn(`[Workday] Failed fetching ${company.name} jobs:`, err.message);
+        updateDynamicCompanyFailure(company, true);
         return [];
       }
     },

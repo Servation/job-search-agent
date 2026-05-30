@@ -22,7 +22,9 @@ import {
   fetchWorkdayJobs, 
   checkSourceHealth, 
   updateCompanyDirectoriesFromRegistry,
-  RawCommunityJob
+  RawCommunityJob,
+  harvestWorkdayUrl,
+  validateWorkdayHost
 } from './sourcing';
 
 let refinerTimer: NodeJS.Timeout | null = null;
@@ -145,6 +147,9 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
 
     // Filter interleaved candidates for duplicate checking and company limits before scoring
     for (const rJob of interleavedCandidates) {
+      if (rJob.url) {
+        harvestWorkdayUrl(rJob.url);
+      }
       const titleL = cleanStr(rJob.title);
       const companyL = cleanStr(rJob.company);
       const uniqueKey = `${companyL}|${titleL}`;
@@ -525,6 +530,48 @@ export async function runRefinementCycle() {
       await runBackgroundSourcing();
     } catch (e: any) {
       console.error('[Refiner] Background sourcing failed:', e.message);
+    }
+  }
+
+  // 1.5. Validate up to 2 pending Workday validation hosts incrementally
+  const freshDb = readDb();
+  const pendingQueue = freshDb.pendingWorkdayValidation || [];
+  if (pendingQueue.length > 0) {
+    const toValidate = pendingQueue.slice(0, 2);
+    const remaining = pendingQueue.slice(2);
+    freshDb.pendingWorkdayValidation = remaining;
+    writeDb(freshDb);
+    
+    for (const item of toValidate) {
+      console.log(`[Discovery] Probing candidate Workday host: ${item.tenant} (${item.host}) using site: ${item.site}...`);
+      try {
+        const validation = await validateWorkdayHost(item.host, item.tenant, item.site);
+        const postDb = readDb();
+        if (validation.success && validation.resolvedSite) {
+          if (!postDb.workdayDirectory) postDb.workdayDirectory = [];
+          const exists = postDb.workdayDirectory.some(
+            c => c.tenant.toLowerCase() === item.tenant.toLowerCase()
+          );
+          if (!exists) {
+            const formattedName = item.tenant.charAt(0).toUpperCase() + item.tenant.slice(1);
+            postDb.workdayDirectory.push({
+              name: formattedName,
+              tenant: item.tenant,
+              site: validation.resolvedSite,
+              host: item.host,
+              consecutiveFailures: 0
+            });
+            console.log(`[Discovery] Validation SUCCESS: Added dynamic Workday company "${formattedName}" (${item.host}) with site path "${validation.resolvedSite}"`);
+            addRefinerLog(`System Discovery: Successfully validated and added dynamic Workday site for "${formattedName}" (${item.host})`);
+          }
+        } else {
+          console.log(`[Discovery] Validation FAILED: Rejected Workday candidate "${item.tenant}" (${item.host})`);
+          addRefinerLog(`System Discovery: Rejected invalid or blocked Workday host candidate "${item.tenant}" (${item.host})`);
+        }
+        writeDb(postDb);
+      } catch (err: any) {
+        console.error(`[Discovery] Unexpected validation error for ${item.tenant}:`, err.message);
+      }
     }
   }
 

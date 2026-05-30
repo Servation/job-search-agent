@@ -5,7 +5,7 @@
 
 import path from 'path';
 import fs from 'fs';
-import { Job, ResumeProfile, LLMConfig } from '../src/types';
+import { Job, ResumeProfile, LLMConfig, WorkdayCompany } from '../src/types';
 
 export const DB_PATH = path.join(process.cwd(), 'discovered_jobs.json');
 
@@ -23,6 +23,14 @@ export interface DatabaseSchema {
     llmEvaluations: number;
     totalSourced: number;
   };
+  workdayDirectory?: WorkdayCompany[];
+  pendingWorkdayValidation?: {
+    host: string;
+    tenant: string;
+    site: string;
+    consecutiveFailures: number;
+    lastAttempt?: string;
+  }[];
 }
 
 export function cleanDbScannedJobs(db: DatabaseSchema): boolean {
@@ -87,7 +95,9 @@ export function readDb(): DatabaseSchema {
           duplicatesPrevented: typeof parsedStats.duplicatesPrevented === 'number' ? parsedStats.duplicatesPrevented : 0,
           llmEvaluations: typeof parsedStats.llmEvaluations === 'number' ? parsedStats.llmEvaluations : 0,
           totalSourced: typeof parsedStats.totalSourced === 'number' ? parsedStats.totalSourced : 0
-        }
+        },
+        workdayDirectory: parsed.workdayDirectory || [],
+        pendingWorkdayValidation: parsed.pendingWorkdayValidation || []
       };
 
       const modified = cleanDbScannedJobs(db);

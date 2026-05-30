@@ -42,7 +42,8 @@ import {
   fetchWorkdayJobs, 
   checkSourceHealth, 
   updateCompanyDirectoriesFromRegistry,
-  RawCommunityJob
+  RawCommunityJob,
+  harvestWorkdayUrl
 } from './server/sourcing';
 import { 
   runBackgroundSourcing, 
@@ -252,6 +253,12 @@ app.post('/api/jobs/source', async (req, res) => {
     }
 
     const jobLinks = links.filter(link => isSpecificJobPost(link));
+    
+    // Passively harvest potential Workday boards from grounding search results
+    for (const link of links) {
+      harvestWorkdayUrl(link);
+    }
+
     const targetLinks = jobLinks.slice(0, 5);
 
     const webScrapedJobs: RawCommunityJob[] = [];
@@ -485,6 +492,9 @@ app.post('/api/jobs/evaluate', async (req, res) => {
 
     // Verify URL
     console.log(`[Evaluate Endpoint] Verifying URL for ${job.title} at ${job.company}: ${job.url}`);
+    if (job.url) {
+      harvestWorkdayUrl(job.url);
+    }
     const verification = await verifyJobUrl(job.url);
     base.url = verification.resolvedUrl;
     base.isUrlVerified = verification.isValid;
