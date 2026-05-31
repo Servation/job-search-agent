@@ -96,7 +96,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
       ? `Candidate has ${yearsOfExperience} years of experience. Filter rules:
          1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
          2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
-         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
+         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.
+         4. REQUIREMENT MISMATCH PENALTY: If the job description lists specific "Required", "Must-have", or "Basic Qualifications" skills (e.g. specific languages, frameworks, degrees) and the candidate's resume does NOT contain them, you must penalize the matchScore by deducting exactly 3 to 4 points.`
       : "Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.";
 
     // Deduplicate against database and track company counts
@@ -239,7 +240,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
     }
 
     // Score only a small batch in the background, or a larger batch if manual search
-    const batchLimit = isManual ? 15 : 5;
+    const batchLimit = isManual ? 3 : 1;
     const batchToScore = candidates.slice(0, batchLimit);
     
     const evalLog = isManual

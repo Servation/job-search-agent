@@ -27,3 +27,9 @@ The automated process of checking whether job links in the active queues (e.g., 
 
 ### Dynamic Discovery
 The automated process of finding and validating new sourcing hosts and tenants (e.g., new Workday career sites) to automatically expand the system's scanning surface.
+
+### Rate-Limited Evaluation Batching
+The practice of throttling LLM evaluation requests using synthetic delays (e.g. 2000ms between calls) and small batch sizes to prevent API timeout and rate-limit pressure when sending expanded context limits.
+
+### Requirement Mismatch Penalty
+A mandatory deduction rule during Match Evaluation that enforces strict negative scoring (deducting 30-40 points) when a candidate lacks explicitly requested "Must-have" or "Required" skills from the job description.

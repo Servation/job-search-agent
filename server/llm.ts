@@ -204,6 +204,8 @@ export async function queryCustomLLMAdaptive(
 
 import { RawCommunityJob } from './sourcing';
 
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export async function scoreCommunityJobs(
   jobs: RawCommunityJob[], rawText: string, llmConfig: any,
   experienceContext: string, savedJobs: any[],
@@ -214,6 +216,10 @@ export async function scoreCommunityJobs(
 ): Promise<any[]> {
   const scored: any[] = [];
   for (let i = 0; i < jobs.length; i++) {
+    if (i > 0) {
+      // Rate-Limited Evaluation Batching delay (2 seconds)
+      await delay(2000);
+    }
     const job = jobs[i];
     if (onProgress) {
       onProgress(job, i, jobs.length);

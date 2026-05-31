@@ -13,8 +13,9 @@ A premium, agentic job search cockpit designed to automate candidate job matchin
 
 ### 1. Multi-Channel ATS Sourcing Pipeline
 * **Direct ATS Crawlers**: Scrapes listings directly from public endpoints for **Greenhouse** and **Lever** (such as Palantir).
-* **Ashby & Workday Sourcing**: Full native integration for **Ashby** (e.g., Linear, PostHog, Vercel, Supabase) and **Workday** (e.g., Nvidia, Salesforce, Capital One, Autodesk, Dell, Target, Intel, PayPal, HP, NXP).
-* **Paced Batching & Reliability**: Executes requests in small parallel groups (batches of 3 for Workday, 4 for Ashby, 8 for Greenhouse) alongside sequential health checks. This completely resolves socket exhaustion, DNS lookup hangs, and rate-limiting.
+* **Ashby Sourcing**: Full native integration for **Ashby** (e.g., Linear, PostHog, Vercel, Supabase).
+* **Dynamic Workday Discovery Engine**: Instead of relying purely on a static list, the agent passively harvests `myworkdayjobs.com` URLs, automatically extracts tenants, validates their API endpoints via lightweight HTTP probes, and dynamically expands your searchable Workday surface area over time (while pruning dead boards).
+* **Paced Batching & Reliability**: Executes requests in small parallel groups alongside sequential health checks. This completely resolves socket exhaustion, DNS lookup hangs, and rate-limiting.
 * **Workday Tenant Cluster Routing**: Dynamically routes API requests directly to each tenant's specific Workday cluster subdomain (e.g., `nvidia.wd5.myworkdayjobs.com` or `salesforce.wd12.myworkdayjobs.com`) rather than generic subdomains, ensuring successful connections.
 * **Focus on Quality Direct Sources**: Bypasses secondary aggregators (RemoteOK, Remotive) and social boards (Hacker News) to ensure the scanner focuses exclusively on legitimate direct employer postings.
 * **Weekly Registry Updates**: Synchronizes company lists weekly from a remote registry, falling back to static lists when offline.
@@ -25,6 +26,8 @@ A premium, agentic job search cockpit designed to automate candidate job matchin
 * **Years of Experience (YoE) Match Safeguards**:
   * Strict title-based blocking (e.g., Staff/Principal roles blocked for `< 5` YoE, Lead roles blocked for `< 4` YoE, and Senior roles for `< 3` YoE).
   * Regex-based description scanning filters out listings requesting `yearsOfExperience + 2` years of experience *before* calling the LLM.
+* **Strict Requirement Mismatch Penalty**: Implements a strict scoring deduction (3-4 points) if your resume lacks explicitly stated "Must-have" or "Required" skills, forcing mismatched jobs below your review threshold instead of producing falsely inflated scores.
+* **Expanded Evaluation Context**: Passes up to 4,000 characters of the job description to the LLM to ensure the actual requirements at the bottom are read (bypassing generic "About Us" boilerplates).
 * **HTML Tag Sanitization**: Standardizes descriptions and removes escaping/entities safely before rendering.
 
 ### 3. Deliberate Verification Loop & Local AI Compatibility
