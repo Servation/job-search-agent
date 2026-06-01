@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { Settings, Cpu, ShieldAlert, Check, Layers, MapPin, CheckSquare, Square, X } from 'lucide-react';
+import { Settings, Cpu, ShieldAlert, Check, Layers, MapPin, CheckSquare, Square, X, Clock } from 'lucide-react';
 import { LLMConfig, ResumeProfile, JobTypeType } from '../types';
 
 interface AgentSettingsProps {
@@ -410,10 +410,10 @@ export default function AgentSettings({
         </div>
       </div>
 
-      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-scheduler-settings">
+      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-automation-settings">
         <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
-          <Layers className="w-5 h-5 text-indigo-400" />
-          Auto-Scan & Discovered Memory Capacity
+          <Clock className="w-5 h-5 text-indigo-400" />
+          Background Automation & Scheduling
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -428,14 +428,14 @@ export default function AgentSettings({
                 className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans cursor-pointer"
               >
                 <option value={0} className="bg-slate-950">Manual (Off)</option>
-                <option value={1} className="bg-slate-950">Every 1 Hour</option>
-                <option value={3} className="bg-slate-950">Every 3 Hours</option>
-                <option value={6} className="bg-slate-950">Every 6 Hours</option>
-                <option value={12} className="bg-slate-950">Every 12 Hours</option>
-                <option value={24} className="bg-slate-950">Every 24 Hours</option>
+                <option value={15} className="bg-slate-950">Every 15 Minutes</option>
+                <option value={30} className="bg-slate-950">Every 30 Minutes</option>
+                <option value={60} className="bg-slate-950">Every 1 Hour</option>
+                <option value={120} className="bg-slate-950">Every 2 Hours</option>
+                <option value={360} className="bg-slate-950">Every 6 Hours</option>
               </select>
               <p className="text-[10px] text-slate-400 mt-1.5 leading-normal font-sans">
-                Automatically triggers a live scan in the background at the specified interval. **Keep this browser tab open to run automated scans.**
+                Automatically triggers a live sourcing scan to pull new jobs from ATS endpoints.
               </p>
             </div>
           </div>
@@ -443,7 +443,39 @@ export default function AgentSettings({
           <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
-                Discovered Postings Memory Capacity
+                Auto-Evaluation & Discovery Interval
+              </label>
+              <select
+                value={profile.refinerIntervalMinutes ?? 5}
+                onChange={(e) => onChangeProfile({ ...profile, refinerIntervalMinutes: Number(e.target.value) })}
+                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans cursor-pointer"
+              >
+                <option value={0} className="bg-slate-950">Manual (Off)</option>
+                <option value={5} className="bg-slate-950">Every 5 Minutes</option>
+                <option value={15} className="bg-slate-950">Every 15 Minutes</option>
+                <option value={30} className="bg-slate-950">Every 30 Minutes</option>
+                <option value={60} className="bg-slate-950">Every 1 Hour</option>
+              </select>
+              <p className="text-[10px] text-slate-400 mt-1.5 leading-normal font-sans">
+                Automatically evaluates sourced jobs using your LLM and dynamically discovers new company boards.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-scheduler-settings">
+        <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
+          <Layers className="w-5 h-5 text-indigo-400" />
+          Discovered Memory Capacity & Duplicate Control
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+          <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
+                Matched Jobs Memory Capacity
               </label>
               <input
                 type="number"
@@ -454,7 +486,7 @@ export default function AgentSettings({
                 className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
               />
               <p className="text-[10px] text-slate-400 mt-1.5 leading-normal">
-                The maximum number of discovered job listings to keep in memory. Once reached, no new jobs will be appended until you review, delete, or apply to existing ones.
+                The maximum number of fully evaluated (matched) job listings to keep in memory. Once reached, no new evaluated jobs will be appended until you review, delete, or apply to existing ones.
               </p>
             </div>
           </div>

@@ -144,6 +144,8 @@ export const globalState = {
   isSourcingActive: false,
   domainFetchCooldowns: {} as Record<string, number>,
   
+  lastBackgroundRefinerTime: 0,
+  
   // Weekly Slugs/Endpoints Registry caching variables
   lastRegistryFetchTime: 0,
   cachedGreenhouseSlugs: [...GREENHOUSE_SLUGS] as string[],
@@ -169,8 +171,6 @@ export const globalState = {
     totalFailures: 0,
   }
 };
-
-export const REFINER_INTERVAL_MS = 5 * 60 * 1000;
 
 // Telemetry log array accessor helpers
 export function addRefinerLog(msg: string): void {

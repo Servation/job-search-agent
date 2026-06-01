@@ -16,17 +16,20 @@ Platforms and job boards scanned to find open positions.
 ### Workday Directory
 A directory of known, verified Workday company career sites (hosts and tenants) that the agent is capable of scanning.
 
-### Discovered Postings
-Job postings that have been sourced and pass initial filtering (e.g. location, basic keyword match) but have not been evaluated for profile fit.
+### Sourcing (Auto-Scan)
+The automated process of actively scraping public job boards (Greenhouse, Lever, Ashby, Workday) to find *new* job listings that match basic keywords, title constraints, and location. These are placed into the "Unmatched Jobs" queue.
 
-### Match Evaluation
-The process of evaluating a job posting's full description against the candidate's resume/profile using AI (Large Language Models) to assign a match score and reasons.
+### Unmatched Jobs
+Raw job candidates discovered by the Sourcing phase that have not yet had their full descriptions fetched nor been evaluated by the LLM.
 
-### Link Auditing
-The automated process of checking whether job links in the active queues (e.g., scanned, watchlist) are still live or have been closed/filled.
+### Match Evaluation (Refiner)
+The background process that pulls one job at a time from the "Unmatched Jobs" queue, fetches its full description, and uses the LLM (e.g. LM Studio) to score it against the candidate's resume.
+
+### Matched Jobs
+Jobs that have successfully passed Match Evaluation with a score meeting or exceeding the candidate's minimum threshold.
 
 ### Dynamic Discovery
-The automated process of finding and validating new sourcing hosts and tenants (e.g., new Workday career sites) to automatically expand the system's scanning surface.
+The background process that passively extracts and validates new job board endpoints (like a new company's Workday URL) that are encountered during operations, automatically adding them to the Sourcing targets for future scans.
 
 ### Rate-Limited Evaluation Batching
 The practice of throttling LLM evaluation requests using synthetic delays (e.g. 2000ms between calls) and small batch sizes to prevent API timeout and rate-limit pressure when sending expanded context limits.

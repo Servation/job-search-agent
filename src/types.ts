@@ -60,7 +60,8 @@ export interface ResumeProfile {
   prefersOnSite?: boolean;
   searchLocation: string;
   searchDistance?: string;
-  autoScanInterval?: number; // Sourcing recurring interval in hours (0 = manual)
+  autoScanInterval?: number; // Sourcing recurring interval in minutes (0 = manual)
+  refinerIntervalMinutes?: number; // Background evaluation/discovery interval in minutes (0 = manual)
   maxDiscoveredJobs?: number; // Capacity cap for keeping discovered jobs in memory
   limitCompanyMatches?: boolean; // If true, restrict multiple matches from the same company
   maxMatchesPerCompany?: number; // Maximum matches to keep from a single company

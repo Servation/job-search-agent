@@ -1246,7 +1246,9 @@ app.post('/api/jobs/poll', (req, res) => {
     success: true,
     db: { ...db, logs: [] },
     newLogs: logs,
-    currentlyRefiningJobId: globalState.currentlyRefiningJobId
+    currentlyRefiningJobId: globalState.currentlyRefiningJobId,
+    lastBackgroundSourceTime: globalState.lastBackgroundSourceTime,
+    lastBackgroundRefinerTime: globalState.lastBackgroundRefinerTime
   });
 });
 
@@ -1435,11 +1437,72 @@ app.post('/api/jobs/search-now', async (req, res) => {
     // Execute sourcing synchronously for this request with isManual = true
     const preventedDuplicates = await runBackgroundSourcing(true);
     
+    // Set the background source time to now so it resets the timer and prevents double-triggering
+    globalState.lastBackgroundSourceTime = Date.now();
+    
     const freshDb = readDb();
     res.json({ success: true, db: freshDb, preventedDuplicates });
   } catch (err: any) {
     console.error('[API] Search-now trigger failed:', err);
     res.status(500).json({ error: err.message || 'Failed to execute immediate search.' });
+  }
+});
+
+// Endpoint to force run the LLM Refiner in a loop until 3 matches or empty
+app.post('/api/jobs/trigger-refiner', async (req, res) => {
+  if (globalState.currentlyRefiningJobId) {
+    res.status(429).send('A refinement process is already running. Please wait for it to complete.');
+    return;
+  }
+  
+  // We send the immediate response so the UI doesn't hang, while processing continues in background.
+  res.json({ success: true, message: 'LLM Matching loop started in background.' });
+
+  try {
+    console.log('[API] Instant trigger-refiner received. Starting loop...');
+    addRefinerLog('Refiner: Manual "Trigger LLM Matching" initiated by candidate.');
+    
+    // Clear domain fetch cooldowns to allow immediate processing
+    for (const key of Object.keys(globalState.domainFetchCooldowns)) {
+      delete globalState.domainFetchCooldowns[key];
+    }
+
+    let matchesFound = 0;
+    while (matchesFound < 3) {
+      // Pass isManual = true to bypass idle checks
+      const result = await runRefinementCycle(true);
+      
+      if (result === 'empty') {
+        console.log('[Refiner] Loop finished: Unmatched queue is empty.');
+        addRefinerLog('Refiner: Matching loop finished (Queue empty).');
+        break;
+      }
+      
+      if (result === 'error' || result === 'skipped') {
+        console.log(`[Refiner] Loop encountered ${result}. Breaking to prevent infinite loop.`);
+        addRefinerLog(`Refiner Warning: Matching loop stopped due to ${result} state.`);
+        break;
+      }
+
+      if (result === 'match') {
+        matchesFound++;
+        console.log(`[Refiner] Loop matched job. Total matches found: ${matchesFound}/3`);
+      }
+      
+      // Delay to respect LLM / Rate limits
+      if (matchesFound < 3) {
+        console.log(`[Refiner] Loop sleeping for 8000ms before next iteration...`);
+        await new Promise(r => setTimeout(r, 8000));
+      }
+    }
+    
+    if (matchesFound >= 3) {
+      console.log('[Refiner] Loop finished: Reached 3 successful matches.');
+      addRefinerLog('Refiner: Matching loop finished (Found 3 matches).');
+    }
+  } catch (err: any) {
+    console.error('[API] trigger-refiner loop failed:', err);
+    addRefinerLog(`Refiner Error: Matching loop encountered an error: ${err.message}`);
   }
 });
 
@@ -1506,20 +1569,7 @@ app.use('/api/*', (req, res) => {
 
 // Configure Vite or Static server
 async function start() {
-  // One-time database cleanup of legacy unmatched/unevaluated jobs
-  try {
-    const db = readDb();
-    const originalCount = db.scannedJobs.length;
-    const cleanScanned = db.scannedJobs.filter(j => j.matchScore > 0 && j.matchReason);
-    if (cleanScanned.length !== originalCount) {
-      db.scannedJobs = cleanScanned;
-      writeDb(db);
-      console.log(`[Startup Cleanup] Removed ${originalCount - cleanScanned.length} legacy unmatched/unevaluated jobs from scannedJobs.`);
-      addRefinerLog(`System Startup: Removed ${originalCount - cleanScanned.length} legacy unmatched/unevaluated jobs to restore slots.`);
-    }
-  } catch (err: any) {
-    console.error('[Startup Cleanup] Failed to run database cleanup:', err.message);
-  }
+
 
   // Start the background refiner
   startBackgroundRefiner();

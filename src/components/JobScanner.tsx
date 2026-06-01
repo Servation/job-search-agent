@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Briefcase, Sparkles, Info } from 'lucide-react';
+import { Briefcase, Sparkles, Info, Play } from 'lucide-react';
 import { Job, JobStatusType, ResumeProfile, LLMConfig } from '../types';
 
 // Import subcomponents
@@ -77,10 +77,54 @@ export default function JobScanner({
   setRalphMode
 }: JobScannerProps) {
   const [preventedDuplicates, setPreventedDuplicates] = useState<any[]>([]);
-  const [activeScannerTab, setActiveScannerTab] = useState<'discovered' | 'dismissed'>('discovered');
+  const [activeScannerTab, setActiveScannerTab] = useState<'matched' | 'unmatched' | 'dismissed'>('matched');
+  
+  const matchedJobs = scannedJobs.filter(j => j.isFullDescriptionFetched);
+  const unmatchedJobs = scannedJobs.filter(j => !j.isFullDescriptionFetched);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [scanStatus, setScanStatus] = useState<'idle' | 'running'>('idle');
   const [scanMessage, setScanMessage] = useState<string | null>(null);
+
+  const [timers, setTimers] = useState({ scrape: 0, match: 0 });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const autoScrapeMinutes = profileRef.current.autoScanInterval || 0;
+      const refinerMinutes = profileRef.current.refinerIntervalMinutes || 0;
+      
+      const lastScrapeMs = parseInt(localStorage.getItem('job_agent_last_run_timestamp') || String(Date.now()));
+      const nextScrapeMs = lastScrapeMs + (autoScrapeMinutes * 60 * 1000);
+      let remainingScrape = Math.floor((nextScrapeMs - Date.now()) / 1000);
+      if (remainingScrape < 0) remainingScrape = 0;
+      
+      const lastRefinerMs = parseInt(localStorage.getItem('job_agent_last_refiner_timestamp') || String(Date.now()));
+      const nextRefinerMs = lastRefinerMs + (refinerMinutes * 60 * 1000);
+      let remainingRefiner = Math.floor((nextRefinerMs - Date.now()) / 1000);
+      if (remainingRefiner < 0) remainingRefiner = 0;
+      
+      setTimers({
+        scrape: remainingScrape,
+        match: remainingRefiner
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatScrapeTime = (secs: number) => {
+    if (!profile.autoScanInterval || profile.autoScanInterval === 0) return 'Manual';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    return `${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`;
+  };
+
+  const formatMatchTime = (secs: number) => {
+    if (!profile.refinerIntervalMinutes || profile.refinerIntervalMinutes === 0) return 'Manual';
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+    return `${s.toString().padStart(2, '0')}s`;
+  };
 
   const scannedJobsRef = useRef(scannedJobs);
   scannedJobsRef.current = scannedJobs;
@@ -194,9 +238,50 @@ export default function JobScanner({
       localStorage.setItem('job_agent_last_run_timestamp', String(Date.now()));
 
     } catch (err: any) {
-      scannerLog(`Instant search failed: ${err.message}.`, "filterSkip");
+      setScanMessage(`Instant search encountered an error: ${err.message}`);
     } finally {
       setIsAiRunning(false);
+      setScanStatus('idle');
+    }
+  };
+
+  const executeRefinement = async () => {
+    if (!profile.rawText) {
+      setScanMessage("Please paste or parse a resume first from the profile section!");
+      return;
+    }
+
+    setIsAiRunning(true);
+    setScanStatus('running');
+    setScanMessage(null);
+    onScanStarted();
+
+    scannerLog("JobScanner: Initiated manual LLM matching loop...", "fetch");
+
+    try {
+      await fetch('/api/profile/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile, llmConfig })
+      });
+
+      const response = await fetch('/api/jobs/trigger-refiner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error(await response.text() || "Refinement trigger failed.");
+      }
+      
+      // Note: The loop runs in the background. The polling will pick up the UI changes!
+      scannerLog("JobScanner: Matching loop started in background.", "complete");
+      
+    } catch (err: any) {
+      scannerLog(`Manual refinement trigger failed: ${err.message}.`, "filterSkip");
+      setScanMessage(`Refinement trigger encountered an error: ${err.message}`);
+    } finally {
+      // Keep showing as running because the background loop is going, the regular polling will update `isAiRunning`
       setScanStatus('idle');
     }
   };
@@ -283,39 +368,75 @@ export default function JobScanner({
   return (
     <div className="space-y-6" id="job-scanner-container">
       {/* Search Header Config Controls */}
-      <div className="sleek-card rounded-2xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-5">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display">
-            <Briefcase className="w-5 h-5 text-indigo-400" />
-            Scanner
-          </h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Initiate real-time searches looking for matching jobs.
-          </p>
+      <div className="sleek-card rounded-2xl p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+        <div className="flex flex-row items-center justify-between lg:justify-start w-full lg:w-auto gap-4">
+          <div className="flex items-center gap-4">
+            <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display shrink-0">
+              <Briefcase className="w-5 h-5 text-indigo-400" />
+              Scanner
+            </h2>
+            <div className="h-6 w-px bg-white/10 hidden sm:block"></div>
+          </div>
+          
+          <div className="flex items-center gap-2.5 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-white/5 shrink-0">
+            <span className={`w-2 h-2 rounded-full ${
+              scanStatus === 'running' || isAiRunning ? "bg-indigo-500 animate-ping" : "bg-emerald-500"
+            }`} />
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-tight hidden sm:inline-block">
+              {scanStatus === 'running' ? "Sourcing Jobs..." : isAiRunning ? "Evaluating Jobs..." : "System Idle"}
+            </span>
+            <span className="text-[10px] font-bold text-slate-300 uppercase tracking-tight sm:hidden">
+              {scanStatus === 'running' ? "Sourcing..." : isAiRunning ? "Evaluating..." : "Idle"}
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {scanStatus === 'idle' ? (
-            <button
-              onClick={executeScan}
-              disabled={!profile.rawText}
-              className="px-6 py-2.5 rounded-xl bg-indigo-650 hover:bg-indigo-700 text-white font-semibold text-sm transition-all shadow-md shadow-indigo-500/15 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-            >
-              <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-              Search Now
-            </button>
-          ) : (
-            <button
-              disabled
-              className="px-6 py-2.5 rounded-xl bg-indigo-750/50 text-white/70 font-semibold text-sm transition-all flex items-center gap-2 cursor-not-allowed shrink-0"
-            >
-              <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-              Searching...
-            </button>
-          )}
+        <div className="flex flex-col lg:items-end gap-1.5 w-full lg:w-auto mt-2 lg:mt-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full">
+            {scanStatus === 'idle' ? (
+              <>
+                <button
+                  onClick={executeScan}
+                  disabled={!profile.rawText}
+                  className="px-5 py-2.5 sm:py-2 rounded-xl bg-indigo-650 hover:bg-indigo-700 text-white font-semibold text-sm transition-all shadow-md flex justify-center items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed w-full sm:w-auto group"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0 group-hover:animate-pulse" />
+                  <span className="flex items-center gap-1.5">
+                    Trigger Sourcing
+                    <span className="tabular-nums font-mono text-[11px] opacity-60 bg-indigo-900/50 px-1.5 py-0.5 rounded-md w-[85px] text-center border border-indigo-500/20">{formatScrapeTime(timers.scrape)}</span>
+                  </span>
+                </button>
+                <button
+                  onClick={executeRefinement}
+                  disabled={!profile.rawText}
+                  className="px-5 py-2.5 sm:py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 font-semibold text-sm transition-all shadow-md flex justify-center items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed border border-purple-500/20 w-full sm:w-auto"
+                >
+                  <Play className="w-4 h-4 text-purple-400 shrink-0" />
+                  <span className="flex items-center gap-1.5">
+                    Trigger Matching
+                    <span className="tabular-nums font-mono text-[11px] opacity-60 bg-purple-900/40 px-1.5 py-0.5 rounded-md w-[52px] text-center border border-purple-500/20">{formatMatchTime(timers.match)}</span>
+                  </span>
+                </button>
+              </>
+            ) : (
+              <button
+                disabled
+                className="px-5 py-2.5 sm:py-2 rounded-xl bg-indigo-750/50 text-white/70 font-semibold text-sm transition-all flex justify-center items-center gap-2 cursor-not-allowed w-full sm:w-auto"
+              >
+                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Processing...
+              </button>
+            )}
+          </div>
+          <div className="flex items-center justify-center lg:justify-end gap-1.5 text-[10px] text-slate-500 font-medium px-1 w-full mt-0.5">
+            <svg className="w-3 h-3 text-emerald-500/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Runs automatically in background
+          </div>
         </div>
       </div>
 
@@ -325,47 +446,6 @@ export default function JobScanner({
         </div>
       )}
 
-      {/* AI Live Monitoring Telemetry Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5" id="ai-status-monitoring">
-        <div className="sleek-card rounded-2xl p-5 border border-white/5 bg-slate-900/40 flex items-center justify-between">
-          <div className="space-y-1">
-            <span className="text-[10px] tracking-wider uppercase text-slate-400 font-bold block">AI Agent Core Engine</span>
-            <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full ${
-                scanStatus === 'running' ? "bg-indigo-500 animate-ping" : "bg-emerald-500"
-              }`} />
-              <span className="text-sm font-bold text-slate-100 uppercase tracking-tight">
-                {scanStatus === 'running' ? "Searching..." : "Instance Idle"}
-              </span>
-            </div>
-            {scanStatus === 'running' ? (
-              <span className="text-[10px] block text-indigo-400 font-medium leading-none animate-pulse">Running sourcing and match scans...</span>
-            ) : (
-              <span className="text-[10px] block text-slate-400 font-medium leading-none">Periodic background checks active (every 5 mins)</span>
-            )}
-          </div>
-          <div className="w-10 h-10 rounded-xl bg-slate-955 flex items-center justify-center text-slate-400">
-            <Sparkles className={`w-5 h-5 ${isAiRunning ? "text-indigo-400 animate-spin" : "text-emerald-450"}`} />
-          </div>
-        </div>
-
-        <div className="sleek-card rounded-2xl p-5 border border-white/5 bg-slate-900/40 col-span-2 flex flex-col justify-between">
-          <div className="space-y-1">
-            <span className="text-[10px] tracking-wider uppercase text-slate-400 font-bold block">Last Execution Checkpoint (Bookmark Indicator)</span>
-            <span className="text-sm font-bold text-white block">
-              {lastRunTime ? lastRunTime : "Never Executed"}
-            </span>
-          </div>
-          <div className="text-[11px] text-slate-400 leading-normal mt-1.5 flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-            {lastRunTime ? (
-              <span>Active scan bookmark established. Incremental run will resume precisely from where it left off to avoid duplicates.</span>
-            ) : (
-              <span>Dynamic baseline synchronisation. Checkpoint logs will save automatically to skip redundant positions.</span>
-            )}
-          </div>
-        </div>
-      </div>
 
       {/* Unified Live Event Logs Scrolling Terminal */}
       <EventLogsConsole
@@ -399,15 +479,29 @@ export default function JobScanner({
         {/* Tab selection header */}
         <div className="flex border-b border-white/5 pb-2 mb-4 gap-4">
           <button
-            onClick={() => setActiveScannerTab('discovered')}
+            onClick={() => setActiveScannerTab('matched')}
             className={`pb-2 px-1 text-sm font-semibold tracking-tight transition-all relative cursor-pointer ${
-              activeScannerTab === 'discovered' 
+              activeScannerTab === 'matched' 
                 ? 'text-white font-bold' 
                 : 'text-slate-450 hover:text-slate-300'
             }`}
           >
-            Discovered Postings ({scannedJobs.length})
-            {activeScannerTab === 'discovered' && (
+            Matched Jobs ({matchedJobs.length})
+            {activeScannerTab === 'matched' && (
+              <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
+            )}
+          </button>
+          
+          <button
+            onClick={() => setActiveScannerTab('unmatched')}
+            className={`pb-2 px-1 text-sm font-semibold tracking-tight transition-all relative cursor-pointer ${
+              activeScannerTab === 'unmatched' 
+                ? 'text-white font-bold' 
+                : 'text-slate-450 hover:text-slate-300'
+            }`}
+          >
+            Unmatched Jobs ({unmatchedJobs.length})
+            {activeScannerTab === 'unmatched' && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
             )}
           </button>
@@ -420,30 +514,69 @@ export default function JobScanner({
                 : 'text-slate-450 hover:text-slate-300'
             }`}
           >
-            Dismissed Postings ({dismissedJobs.length})
+            Dismissed ({dismissedJobs.length})
             {activeScannerTab === 'dismissed' && (
               <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-full" />
             )}
           </button>
         </div>
 
-        {/* Tab Content 1: Discovered Postings */}
-        {activeScannerTab === 'discovered' && (
-          <div className="space-y-4" id="scanned-matches-list">
+        {/* Tab Content 1: Matched Jobs */}
+        {activeScannerTab === 'matched' && (
+          <div className="space-y-4" id="matched-jobs-list">
             <div className="flex justify-between items-center px-1">
-              <span className="text-xs uppercase font-bold tracking-wider text-indigo-400 font-display">Discovered Postings</span>
+              <span className="text-xs uppercase font-bold tracking-wider text-indigo-400 font-display">Evaluated Matches</span>
               <span className="text-xs text-slate-400 font-mono">
-                {scannedJobs.length} / {profile.maxDiscoveredJobs || 30} slots used
+                {matchedJobs.length} / {profile.maxDiscoveredJobs || 30} slots used
               </span>
             </div>
 
-            {scannedJobs.length === 0 ? (
+            {matchedJobs.length === 0 ? (
               <div className="text-center py-12 sleek-card rounded-2xl border border-dashed border-white/5 text-slate-500 font-medium">
-                No discovered postings yet. Launch a scan to find opportunities.
+                No matched jobs yet. Wait for the LLM to finish evaluating discovered postings.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
-                {[...scannedJobs]
+                {[...matchedJobs]
+                  .sort((a, b) => {
+                    const dateA = a.postedAt && !a.postedAt.includes('24h') ? new Date(a.postedAt).getTime() : 0;
+                    const dateB = b.postedAt && !b.postedAt.includes('24h') ? new Date(b.postedAt).getTime() : 0;
+                    if (dateA !== dateB) return dateA - dateB;
+                    return a.id.localeCompare(b.id);
+                  })
+                  .map((job) => (
+                    <DiscoveredJobCard
+                      key={job.id}
+                      job={job}
+                      currentlyRefiningJobId={currentlyRefiningJobId}
+                      onSaveToTracker={handleSaveToTracker}
+                      onSaveToWatchlist={handleSaveToWatchlist}
+                      onDismissJob={handleDismissJob}
+                      onBlockCompany={handleBlockCompany}
+                    />
+                  ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab Content 2: Unmatched Jobs */}
+        {activeScannerTab === 'unmatched' && (
+          <div className="space-y-4" id="unmatched-jobs-list">
+            <div className="flex justify-between items-center px-1">
+              <span className="text-xs uppercase font-bold tracking-wider text-slate-400 font-display">Pending Evaluation</span>
+              <span className="text-xs text-slate-500 font-mono">
+                {unmatchedJobs.length} / 100 slots used
+              </span>
+            </div>
+
+            {unmatchedJobs.length === 0 ? (
+              <div className="text-center py-12 sleek-card rounded-2xl border border-dashed border-white/5 text-slate-500 font-medium">
+                No unevaluated jobs in the queue.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {[...unmatchedJobs]
                   .sort((a, b) => {
                     const dateA = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
                     const dateB = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
@@ -516,6 +649,7 @@ export default function JobScanner({
                         </p>
                       )}
                     </div>
+
                     <button
                       onClick={() => handleUndismissJob(dJob)}
                       className="px-3.5 py-2 rounded-xl bg-emerald-655/10 hover:bg-emerald-655/20 text-emerald-400 font-bold text-xs border border-emerald-500/20 flex items-center gap-1.5 transition-all self-stretch sm:self-auto justify-center cursor-pointer"

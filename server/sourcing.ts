@@ -1010,3 +1010,93 @@ export async function fetchHackerNewsJobs(
     return [];
   }
 }
+export async function fetchWorkdayViaSearchGrounding(
+  targetRoles: string[],
+  searchLocation: string
+): Promise<RawCommunityJob[]> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const roleQuery = targetRoles.length > 0 ? targetRoles[0] : 'Software Engineer';
+    const locationQuery = searchLocation || 'Remote';
+    // Example query: site:myworkdayjobs.com "Software Engineer" "California"
+    const query = `site:myworkdayjobs.com "${roleQuery}" "${locationQuery}"`;
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+
+    console.log(`[Search Grounding] Executing DuckDuckGo query for Workday: ${query}`);
+    
+    const searchRes = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      signal: ctrl.signal
+    });
+    
+    if (!searchRes.ok) {
+      console.warn(`[Search Grounding] DuckDuckGo returned HTTP ${searchRes.status}`);
+      clearTimeout(tid);
+      return [];
+    }
+
+    const html = await searchRes.text();
+    clearTimeout(tid);
+
+    const links: string[] = [];
+    const regex = /<a class="result__url" href="\/\/duckduckgo\.com\/l\/\?uddg=([^"]+)">/g;
+    let match;
+    while ((match = regex.exec(html)) !== null) {
+      try {
+        const decoded = decodeURIComponent(match[1]);
+        if (decoded.includes('myworkdayjobs.com')) {
+          links.push(decoded);
+        }
+      } catch (e) {
+        // ignore decode errors
+      }
+    }
+
+    console.log(`[Search Grounding] Found ${links.length} raw Workday links from search.`);
+
+    const results: RawCommunityJob[] = [];
+    const seenLinks = new Set<string>();
+
+    for (const link of links) {
+      // Remove any tracking parameters from the URL
+      const cleanUrl = link.split('?')[0].split('&')[0];
+      if (seenLinks.has(cleanUrl)) continue;
+      seenLinks.add(cleanUrl);
+
+      // Attempt to parse company name from the workday tenant URL
+      // e.g., https://nvidia.wd5.myworkdayjobs.com -> nvidia
+      let companyName = 'Unknown Workday Company';
+      try {
+        const urlObj = new URL(cleanUrl);
+        const hostParts = urlObj.hostname.split('.');
+        if (hostParts.length > 0) {
+          const tenant = hostParts[0];
+          companyName = tenant.charAt(0).toUpperCase() + tenant.slice(1);
+        }
+      } catch (e) {
+        // Fallback to Unknown
+      }
+
+      results.push({
+        title: roleQuery, // We don't have the exact title, we'll use the query role
+        company: companyName,
+        location: locationQuery, // We don't have the exact location, use the search parameter
+        description: 'Position details will be evaluated from the application site.',
+        url: cleanUrl,
+        postedAt: new Date().toISOString(), // We don't have the exact date
+        type: 'Full-Time',
+        isRemote: locationQuery.toLowerCase().includes('remote'),
+        source: 'workday' as const,
+      });
+    }
+
+    return results;
+  } catch (err: any) {
+    clearTimeout(tid);
+    console.warn('[Search Grounding] Sourcing failed:', err.message);
+    return [];
+  }
+}

@@ -492,6 +492,15 @@ export default function App() {
             
             // Set currently refining ID
             setCurrentlyRefiningJobId(data.currentlyRefiningJobId || null);
+            setIsAiRunning(data.currentlyRefiningJobId ? true : false);
+            
+            // Sync background timers to local storage so Scanner can show them
+            if (data.lastBackgroundSourceTime) {
+              localStorage.setItem('job_agent_last_run_timestamp', String(data.lastBackgroundSourceTime));
+            }
+            if (data.lastBackgroundRefinerTime) {
+              localStorage.setItem('job_agent_last_refiner_timestamp', String(data.lastBackgroundRefinerTime));
+            }
             
             // Append new logs from background
             if (data.newLogs && data.newLogs.length > 0) {

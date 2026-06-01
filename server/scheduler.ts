@@ -10,7 +10,6 @@ import {
   extractRoleKeywords, 
   checkDescriptionLocationMismatch, 
   appendRemainingDescription, 
-  extractSalaryWithRegex, 
   getDomain, 
   fetchJobHtml 
 } from './utils';
@@ -18,9 +17,10 @@ import { scoreCommunityJobs, queryCustomLLMAdaptive } from './llm';
 import { 
   fetchGreenhouseJobs, 
   fetchLeverJobs, 
-  fetchAshbyJobs, 
-  fetchWorkdayJobs, 
-  checkSourceHealth, 
+  fetchAshbyJobs,
+  fetchSmartRecruitersJobs,
+  fetchWorkdayViaSearchGrounding, 
+  checkSourceHealth,
   updateCompanyDirectoriesFromRegistry,
   RawCommunityJob,
   harvestWorkdayUrl,
@@ -45,12 +45,24 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
     return [];
   }
 
-  const capacity = db.profile.maxDiscoveredJobs || 30;
-  const currentCount = db.scannedJobs.length;
-  if (currentCount >= capacity) {
+  const matchedCapacity = db.profile.maxDiscoveredJobs || 30;
+  const unmatchedCapacity = 100;
+  
+  const matchedCount = db.scannedJobs.filter(j => j.isFullDescriptionFetched).length;
+  const unmatchedCount = db.scannedJobs.length - matchedCount;
+
+  if (matchedCount >= matchedCapacity) {
     const skipMsg = isManual
-      ? `Search Agent skipped: Board is already at capacity (${currentCount}/${capacity} jobs).`
-      : `[Refiner] Background sourcing skipped: Board is already at or above capacity (${currentCount}/${capacity} jobs).`;
+      ? `Search Agent skipped: Matched jobs board is already at capacity (${matchedCount}/${matchedCapacity} jobs).`
+      : `[Refiner] Background sourcing skipped: Matched jobs board is already at capacity (${matchedCount}/${matchedCapacity} jobs).`;
+    console.log(skipMsg);
+    return [];
+  }
+  
+  if (unmatchedCount >= unmatchedCapacity) {
+    const skipMsg = isManual
+      ? `Search Agent skipped: Unmatched pending queue is full (${unmatchedCount}/${unmatchedCapacity} jobs).`
+      : `[Refiner] Background sourcing skipped: Unmatched pending queue is full (${unmatchedCount}/${unmatchedCapacity} jobs).`;
     console.log(skipMsg);
     return [];
   }
@@ -74,7 +86,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
     health.greenhouse ? fetchGreenhouseJobs(globalState.cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
     health.lever ? fetchLeverJobs(globalState.cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
     health.ashby ? fetchAshbyJobs(globalState.cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-    health.workday ? fetchWorkdayJobs(globalState.cachedWorkdayDirectory, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+    health.workday ? fetchWorkdayViaSearchGrounding(targetRoles, searchLocation) : Promise.resolve([]),
   ]);
 
   const raw: RawCommunityJob[] = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs];
@@ -239,165 +251,82 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
       return preventedDuplicates;
     }
 
-    // Score only a small batch in the background, or a larger batch if manual search
-    const batchLimit = isManual ? 3 : 1;
-    const batchToScore = candidates.slice(0, batchLimit);
-    
-    const evalLog = isManual
-      ? `Search Agent: Evaluating ${batchToScore.length} new candidates via LLM...`
-      : `Refiner: Evaluating ${batchToScore.length} new candidates via background LLM...`;
-    
-    console.log(isManual 
-      ? `[Search Agent] Sourced ${candidates.length} unique candidates. Evaluating batch of ${batchToScore.length}...`
-      : `[Refiner] Sourced ${candidates.length} unique candidates. Background evaluating batch of ${batchToScore.length}...`
-    );
-    addRefinerLog(evalLog);
-
-    const scoredJobs = await scoreCommunityJobs(
-      batchToScore,
-      db.profile.rawText,
-      db.llmConfig,
-      experienceContext,
-      db.savedJobs,
-      searchLocation,
-      prefersRemote,
-      db.profile?.blockedCompanies || [],
-      (job, idx, total) => {
-        const jobMsg = isManual
-          ? `Search Agent: [Candidate ${idx + 1}/${total}] Evaluating "${job.title}" at ${job.company}...`
-          : `Refiner: [Candidate ${idx + 1}/${total}] Background evaluating "${job.title}" at ${job.company}...`;
-        addRefinerLog(jobMsg);
-      }
-    );
-
-    // Filter scored jobs by score threshold and company limits
-    const minScore = db.profile.minMatchScore || 70;
+    // Add all candidates directly to the Unmatched queue without LLM scoring
     const toAdd: Job[] = [];
-
-    // Re-read db to get fresh state before writing updates
     const freshDb = readDb();
     if (!freshDb.stats) {
       freshDb.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
     }
     freshDb.stats.duplicatesPrevented += preventedDuplicates.length;
-    freshDb.stats.llmEvaluations += batchToScore.length;
     
-    // Refresh company counts on freshDb
-    if (limitCompany) {
-      companyCounts.clear();
-      const allActiveJobs = [...freshDb.scannedJobs, ...freshDb.watchlist, ...freshDb.savedJobs];
-      for (const j of allActiveJobs) {
-        const comp = cleanStr(j.company);
-        companyCounts.set(comp, (companyCounts.get(comp) || 0) + 1);
-      }
-    }
-
-    const blockedCompanies = db.profile?.blockedCompanies || [];
-
-    for (const sJob of scoredJobs) {
-      const companyL = cleanStr(sJob.company);
-      
-      // Check if company is blocked (important post-LLM extraction check e.g. for Hacker News jobs)
-      if (blockedCompanies.some(bc => cleanStr(bc) === companyL)) {
-        const logMsg = isManual
-          ? `Search Agent: Excluded candidate "${sJob.title}" at ${sJob.company} (Reason: Company Blocked)`
-          : `Refiner: Excluded background candidate "${sJob.title}" at ${sJob.company} (Reason: Company Blocked)`;
-        addRefinerLog(logMsg);
-        console.log(`[Refiner] Background evaluate: Excluded "${sJob.title}" at ${sJob.company} (Company Blocked)`);
-        continue;
-      }
-
-      // Check score threshold
-      if (sJob.matchScore < minScore) {
-        const skipReason = sJob.matchReason || `Match Score ${sJob.matchScore}% < threshold ${minScore}%`;
-        const logMsg = isManual
-          ? `Search Agent: Skipped candidate "${sJob.title}" at ${sJob.company} (Reason: ${skipReason})`
-          : `Refiner: Skipped background candidate "${sJob.title}" at ${sJob.company} (Reason: ${skipReason})`;
-        addRefinerLog(logMsg);
-        console.log(`[Refiner] Background evaluate: Skipped "${sJob.title}" at ${sJob.company} (Reason: ${skipReason})`);
-        continue;
-      }
-
-      // Check company limits again (since multiple in batch could be same company)
-      if (limitCompany) {
-        const currentCount = companyCounts.get(companyL) || 0;
-        if (currentCount >= maxPerCompany) {
-          const logMsg = isManual
-            ? `Search Agent: Excluded candidate "${sJob.title}" at ${sJob.company} (Reason: Company limit of ${maxPerCompany} reached)`
-            : `Refiner: Excluded background candidate "${sJob.title}" at ${sJob.company} (Reason: Company limit of ${maxPerCompany} reached)`;
-          addRefinerLog(logMsg);
-          console.log(`[Refiner] Background evaluate: Excluded "${sJob.title}" at ${sJob.company} (Company limit of ${maxPerCompany} reached)`);
-          continue;
-        }
-        companyCounts.set(companyL, currentCount + 1);
-      }
-
-      // Format clean Job object to add
+    for (const rJob of candidates) {
       toAdd.push({
-        id: `discovered-${sJob.sourceTag}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        title: sJob.title,
-        company: sJob.company,
-        location: sJob.location,
-        salary: sJob.salary,
-        type: sJob.type,
-        isW2: sJob.isW2,
-        description: sJob.description,
-        url: sJob.url,
-        postedAt: sJob.postedAt,
-        isDuplicate: sJob.isDuplicate,
+        id: `discovered-${rJob.source || 'unknown'}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        title: rJob.title,
+        company: rJob.company,
+        location: rJob.location || 'Not specified',
+        salary: 'Not specified',
+        type: 'Unknown',
+        isW2: true,
+        description: '', // pending full fetch
+        url: rJob.url,
+        postedAt: rJob.postedAt || new Date().toISOString(),
+        isDuplicate: false,
         status: 'discovered',
-        scannedAt: sJob.scannedAt,
-        isUrlVerified: sJob.isUrlVerified,
-        isRemote: sJob.isRemote,
-        skillsRequired: sJob.skillsRequired,
-        industry: sJob.industry,
-        experienceLevel: sJob.experienceLevel,
-        salaryNum: sJob.salaryNum,
-        matchScore: sJob.matchScore,
-        matchReason: sJob.matchReason,
-        sourceTag: sJob.sourceTag,
-        retryTier: sJob.retryTier,
-        isFullDescriptionFetched: sJob.isFullDescriptionFetched
+        scannedAt: new Date().toISOString(),
+        isUrlVerified: true,
+        isRemote: rJob.location?.toLowerCase().includes('remote') || false,
+        skillsRequired: [],
+        industry: 'Tech',
+        experienceLevel: 'Not specified',
+        salaryNum: 0,
+        matchScore: 0,
+        matchReason: 'Pending LLM Evaluation',
+        sourceTag: rJob.source || 'unknown',
+        retryTier: '1',
+        isFullDescriptionFetched: false // Marks it as Unmatched
       });
     }
 
     if (toAdd.length > 0) {
-      const spaceLeft = capacity - freshDb.scannedJobs.length;
+      const unmatchedCapacity = 100;
+      const unmatchedCount = freshDb.scannedJobs.filter(j => !j.isFullDescriptionFetched).length;
+      const spaceLeft = unmatchedCapacity - unmatchedCount;
       const finalToAdd = toAdd.slice(0, Math.max(0, spaceLeft));
       
-      // Log jobs that were skipped because capacity was full
       if (toAdd.length > finalToAdd.length) {
         const skippedDueToCapacity = toAdd.slice(finalToAdd.length);
         for (const job of skippedDueToCapacity) {
           const capMsg = isManual
-            ? `Search Agent: Skipped adding "${job.title}" at ${job.company} (Reason: Discovered postings list is at full capacity)`
-            : `Refiner: Skipped background candidate "${job.title}" at ${job.company} (Reason: Discovered postings list is at full capacity)`;
+            ? `Search Agent: Skipped adding "${job.title}" at ${job.company} (Reason: Unmatched queue is full)`
+            : `Refiner: Skipped candidate "${job.title}" at ${job.company} (Reason: Unmatched queue is full)`;
           addRefinerLog(capMsg);
         }
       }
 
       if (finalToAdd.length > 0) {
+        // Unshift to put newest sourced jobs at the top of the unmatched queue
         freshDb.scannedJobs.unshift(...finalToAdd);
         freshDb.stats.totalScanned += finalToAdd.length;
         for (const job of finalToAdd) {
           const addLog = isManual
-            ? `Search Agent: Added matched job "${job.title}" at ${job.company} (Score: ${job.matchScore}%)`
-            : `Refiner: Added background matched job "${job.title}" at ${job.company} (Score: ${job.matchScore}%)`;
+            ? `Search Agent: Sourced new raw job "${job.title}" at ${job.company}. Added to Unmatched Queue.`
+            : `Refiner: Sourced new background job "${job.title}" at ${job.company}. Added to Unmatched Queue.`;
           addRefinerLog(addLog);
         }
         console.log(isManual
-          ? `[Search Agent] Added ${finalToAdd.length} evaluated jobs to scannedJobs queue.`
-          : `[Refiner] Added ${finalToAdd.length} background-evaluated jobs to scannedJobs queue.`
+          ? `[Search Agent] Added ${finalToAdd.length} raw jobs to Unmatched queue.`
+          : `[Refiner] Added ${finalToAdd.length} raw jobs to Unmatched queue.`
         );
       }
     } else {
       const doneLog = isManual
-        ? 'Search Agent: Sourcing check finished. No new matching postings met threshold requirements.'
-        : 'Refiner: Background job sourcing check finished. No new matching postings met threshold requirements.';
+        ? 'Search Agent: Sourcing check finished. No new unique jobs found.'
+        : 'Refiner: Background job sourcing check finished. No new unique jobs found.';
       addRefinerLog(doneLog);
       console.log(isManual
-        ? '[Search Agent] Sourcing ran: No matching jobs passed score threshold.'
-        : '[Refiner] Background sourcing ran: No matching jobs passed score threshold.'
+        ? '[Search Agent] Sourcing ran: No new jobs added.'
+        : '[Refiner] Background sourcing ran: No new jobs added.'
       );
     }
     
@@ -515,17 +444,20 @@ export async function runLinkAuditCycle() {
   console.log(`[Refiner] Audit: Skipped check for "${target.title}" (HTTP ${fetchResult.status})`);
 }
 
-export async function runRefinementCycle() {
+export async function runRefinementCycle(isManual: boolean = false): Promise<'match' | 'dismiss' | 'empty' | 'error' | 'skipped'> {
   const idleTime = Date.now() - globalState.lastScannerActiveTime;
   const isIdle = idleTime > 60000;
-  if (!isIdle) {
+  if (!isIdle && !isManual) {
     console.log(`[Refiner] Scanner is active (${Math.round(idleTime / 1000)}s ago), skipping background refinement cycle.`);
-    return;
+    return 'skipped';
   }
 
-  // 1. Check if we should run background sourcing
+  const freshDb = readDb();
   const now = Date.now();
-  if (now - globalState.lastBackgroundSourceTime >= 15 * 60 * 1000) {
+
+  // 1. Check if we should run background sourcing
+  const autoScanMinutes = freshDb.profile?.autoScanInterval || 0;
+  if (autoScanMinutes > 0 && now - globalState.lastBackgroundSourceTime >= autoScanMinutes * 60 * 1000) {
     globalState.lastBackgroundSourceTime = now;
     try {
       await runBackgroundSourcing();
@@ -534,8 +466,15 @@ export async function runRefinementCycle() {
     }
   }
 
+  // 1.2 Check if we should run Refiner & Discovery
+  const refinerMinutes = freshDb.profile?.refinerIntervalMinutes ?? 5;
+  if (!isManual && (refinerMinutes === 0 || now - globalState.lastBackgroundRefinerTime < refinerMinutes * 60 * 1000)) {
+    return 'skipped'; // User disabled or interval has not elapsed yet
+  }
+  if (!isManual) globalState.lastBackgroundRefinerTime = now;
+
+
   // 1.5. Validate up to 2 pending Workday validation hosts incrementally
-  const freshDb = readDb();
   const pendingQueue = freshDb.pendingWorkdayValidation || [];
   if (pendingQueue.length > 0) {
     const toValidate = pendingQueue.slice(0, 2);
@@ -582,11 +521,11 @@ export async function runRefinementCycle() {
   // 2. If no unrefined jobs exist, run watchlist/saved link audit check
   if (unrefinedJobs.length === 0) {
     try {
-      await runLinkAuditCycle();
+      if (!isManual) await runLinkAuditCycle();
     } catch (e: any) {
       console.error('[Refiner] Saved link audit failed:', e.message);
     }
-    return;
+    return 'empty';
   }
 
   // 3. Process unrefined jobs
@@ -596,12 +535,12 @@ export async function runRefinementCycle() {
     const domain = getDomain(job.url);
     if (!domain) return true;
     const lastFetch = globalState.domainFetchCooldowns[domain] || 0;
-    return (now - lastFetch) >= COOLDOWN_MS;
+    return isManual || (now - lastFetch) >= COOLDOWN_MS;
   });
 
   if (!targetJob) {
     console.log('[Refiner] All unrefined jobs are on domain cooldown. Skipping cycle.');
-    return;
+    return 'skipped';
   }
 
   const domain = getDomain(targetJob.url);
@@ -623,7 +562,7 @@ export async function runRefinementCycle() {
         db.scannedJobs[dbIndex].refinementReason = 'Refinement: Skipped Workday (Cloudflare bypass)';
         writeDb(db);
       }
-      return;
+      return 'dismiss';
     }
 
     addRefinerLog(`Refiner: Fetching details for "${targetJob.title}" at ${targetJob.company}...`);
@@ -634,7 +573,7 @@ export async function runRefinementCycle() {
     
     if (jobIdx === -1) {
       console.log(`[Refiner] Job "${targetJob.title}" was removed or changed state while fetching. Skipping.`);
-      return;
+      return 'skipped';
     }
 
     const job = refreshDb.scannedJobs[jobIdx];
@@ -656,7 +595,7 @@ export async function runRefinementCycle() {
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Link Dead HTTP ${fetchResult.status})`);
         console.log(`[Refiner] Auto-dismissed dead job link: "${removed.title}" (${fetchResult.status})`);
       }
-      return;
+      return 'dismiss';
     }
 
     if (fetchResult.status !== 200) {
@@ -732,66 +671,49 @@ export async function runRefinementCycle() {
     job.refinementReason = 'Refinement: Details & Salary Enriched';
     writeDb(refreshDb);
 
-    // 4. Extract Salary (Tier 1: Regex)
-    const regexSalary = extractSalaryWithRegex(cleanDescription);
-    if (regexSalary) {
-      const finalDb = readDb();
-      const finalJobIdx = finalDb.scannedJobs.findIndex(j => j.id === targetJob.id);
-      if (finalJobIdx !== -1) {
-        const finalJob = finalDb.scannedJobs[finalJobIdx];
-        finalJob.salary = regexSalary.salary;
-        finalJob.salaryNum = regexSalary.salaryNum;
-        writeDb(finalDb);
-        console.log(`[Refiner] Regex extracted salary for "${targetJob.title}": ${regexSalary.salary} (${regexSalary.salaryNum})`);
-        addRefinerLog(`Refiner: Extracted salary for "${targetJob.title}" via regex: ${regexSalary.salary}`);
-      }
-      return;
-    }
+    // 4. Evaluate job using the LLM Pipeline
+    const minScore = refreshDb.profile?.minMatchScore || 70;
+    const yearsOfExperience = refreshDb.profile?.yearsOfExperience || 0;
+    const experienceContext = yearsOfExperience > 0
+      ? `Candidate has ${yearsOfExperience} years of experience. Filter rules:
+         1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
+         2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
+         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.
+         4. REQUIREMENT MISMATCH PENALTY: If the job description lists specific "Required", "Must-have", or "Basic Qualifications" skills (e.g. specific languages, frameworks, degrees) and the candidate's resume does NOT contain them, you must penalize the matchScore by deducting exactly 3 to 4 points.`
+      : "Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.";
 
-    // 5. Fallback to LLM salary extraction (Tier 2) if regex fails
-    const LLM_COOLDOWN_MS = 3 * 60 * 1000;
-    if (now - globalState.lastBackgroundLlmEvalTime < LLM_COOLDOWN_MS) {
-      console.log(`[Refiner] LLM salary check for "${targetJob.title}" skipped: Cooldown active.`);
-      return;
-    }
-
-    if (!refreshDb.llmConfig) {
-      console.log(`[Refiner] Skipped LLM salary check for "${job.title}" (Missing LLM settings)`);
-      return;
-    }
-
-    const dbConfig = refreshDb.llmConfig;
-    
-    const promptBuilder = (resumeLimit: number, descLimit: number) => {
-      return `You are an expert recruitment assistant. Extract the base salary or hourly compensation rate from this job description.
-      
-      Job Description:
-      """
-      ${cleanDescription.slice(0, descLimit)}
-      """
-      
-      Return a JSON object:
-      {
-        "salary": "Extract salary range text if found (e.g. '$120k–$150k'), otherwise 'Not specified'",
-        "salaryNum": 150000 // numeric representation of upper bound (integer), or 0 if not found
-      }`;
+    const rawJob = {
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      source: job.sourceTag,
+      postedAt: job.postedAt,
+      location: job.location,
+      description: cleanDescription
     };
 
-    console.log(`[Refiner] Querying LLM to extract salary for "${targetJob.title}"...`);
+    console.log(`[Refiner] Evaluating job "${targetJob.title}" via LLM...`);
+    addRefinerLog(`Refiner: Evaluating candidate "${targetJob.title}" at ${targetJob.company} via LLM...`);
     globalState.lastBackgroundLlmEvalTime = Date.now();
+    
+    if (!refreshDb.llmConfig) {
+      console.log(`[Refiner] Skipped LLM evaluation for "${job.title}" (Missing LLM settings)`);
+      addRefinerLog(`Refiner Warning: Skipped LLM evaluation for "${job.title}" because LLM config is missing.`);
+      return 'skipped';
+    }
 
-    const llmResult = await queryCustomLLMAdaptive(
-      dbConfig.endpoint,
-      dbConfig.apiKey,
-      dbConfig.modelName,
-      promptBuilder,
-      (dbConfig.timeout || 35) * 1000,
-      false
+    const [scoredJob] = await scoreCommunityJobs(
+      [rawJob],
+      refreshDb.profile.rawText,
+      refreshDb.llmConfig,
+      experienceContext,
+      refreshDb.savedJobs,
+      searchLocation,
+      prefersRemote,
+      refreshDb.profile?.blockedCompanies || [],
+      () => {}
     );
 
-    const txt = llmResult.content.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
-    const ev = JSON.parse(txt);
-    
     const finalDb = readDb();
     if (!finalDb.stats) {
       finalDb.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
@@ -801,18 +723,44 @@ export async function runRefinementCycle() {
     const finalJobIdx = finalDb.scannedJobs.findIndex(j => j.id === targetJob.id);
     if (finalJobIdx !== -1) {
       const finalJob = finalDb.scannedJobs[finalJobIdx];
-      if (ev.salary && ev.salary !== 'Not specified') {
-        finalJob.salary = ev.salary;
-        finalJob.salaryNum = typeof ev.salaryNum === 'number' ? ev.salaryNum : 0;
-        console.log(`[Refiner] LLM extracted salary for "${finalJob.title}": ${ev.salary} (${finalJob.salaryNum})`);
-        addRefinerLog(`Refiner: Extracted salary for "${finalJob.title}" via LLM: ${ev.salary}`);
+      
+      // Inherit the evaluated fields
+      finalJob.salary = scoredJob.salary;
+      finalJob.salaryNum = scoredJob.salaryNum;
+      finalJob.matchScore = scoredJob.matchScore;
+      finalJob.matchReason = scoredJob.matchReason;
+      finalJob.skillsRequired = scoredJob.skillsRequired || [];
+      finalJob.isRemote = scoredJob.isRemote;
+      finalJob.experienceLevel = scoredJob.experienceLevel;
+      finalJob.industry = scoredJob.industry;
+      finalJob.isFullDescriptionFetched = true; // IT IS NOW EVALUATED (Matched Job)
+      
+      if (finalJob.matchScore < minScore) {
+        // Move to dismissed
+        const removed = finalDb.scannedJobs.splice(finalJobIdx, 1)[0];
+        removed.status = 'dismissed';
+        removed.isRefined = true;
+        if (!finalDb.dismissedJobs.some(j => j.id === removed.id)) {
+          finalDb.dismissedJobs.unshift(removed);
+        }
+        addRefinerLog(`Refiner: Skipped "${removed.title}" (Score ${removed.matchScore}% < ${minScore}%: ${removed.matchReason})`);
+        console.log(`[Refiner] Dismissed job due to low score: ${removed.matchScore}%`);
+        writeDb(finalDb);
+        return 'dismiss';
       } else {
-        console.log(`[Refiner] LLM found no salary information for "${finalJob.title}"`);
+        // Keep in scannedJobs (Matched)
+        finalJob.isRefined = true;
+        addRefinerLog(`Refiner: Successfully evaluated "${finalJob.title}" (Score: ${finalJob.matchScore}%)`);
+        console.log(`[Refiner] Evaluated job matches criteria: ${finalJob.matchScore}%`);
+        writeDb(finalDb);
+        return 'match';
       }
     }
     writeDb(finalDb);
+    return 'skipped';
   } catch (err: any) {
     console.error('[Refiner] Error in job refinement details processing:', err);
+    return 'error';
   } finally {
     globalState.currentlyRefiningJobId = null;
   }
@@ -826,6 +774,6 @@ export function startBackgroundRefiner() {
     } catch (err) {
       console.error('[Refiner] Error in refinement cycle:', err);
     }
-  }, REFINER_INTERVAL_MS);
-  console.log('[Refiner] Background refiner started, running every 5 minutes.');
+  }, 60000);
+  console.log('[Refiner] Background 1-minute heartbeat started.');
 }
