@@ -577,13 +577,42 @@ export async function fetchJobHtml(urlStr: string): Promise<{ text: string; stat
     }
     
     const html = await res.text();
-    const text = html
+    let text = html
       .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, '')
       .replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
       
+    const isJSBlocked = 
+      /enable javascript/i.test(html) || 
+      /enable javascript/i.test(text) ||
+      /please enable js/i.test(html) ||
+      /checking your browser before accessing/i.test(html) ||
+      text.length < 400 ||
+      urlStr.includes('myworkdayjobs.com');
+
+    if (isJSBlocked) {
+      console.log(`[Refiner] Detected JS block or SPA for ${urlStr}, falling back to Jina Reader...`);
+      try {
+        const jinaController = new AbortController();
+        const jinaTimeoutId = setTimeout(() => jinaController.abort(), 15000);
+        const jinaRes = await fetch(`https://r.jina.ai/${urlStr}`, {
+          signal: jinaController.signal
+        });
+        clearTimeout(jinaTimeoutId);
+        
+        if (jinaRes.ok) {
+          const jinaText = await jinaRes.text();
+          if (jinaText && jinaText.length > 100) {
+            text = jinaText;
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[Refiner] Jina fallback failed for ${urlStr}:`, e.message);
+      }
+    }
+
     return { text, status: res.status, finalUrl };
   } catch (err: any) {
     clearTimeout(timeoutId);

@@ -138,10 +138,15 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
 
     // Populate initial company counts from database
     if (limitCompany) {
+      const cutoffTime = Date.now() - 4 * 24 * 60 * 60 * 1000; // 4 days rolling window
       const allActiveJobs = [...db.scannedJobs, ...db.watchlist, ...db.savedJobs];
       for (const j of allActiveJobs) {
-        const comp = cleanStr(j.company);
-        companyCounts.set(comp, (companyCounts.get(comp) || 0) + 1);
+        // Only count jobs scanned or posted within the rolling time window
+        const jobTime = j.scannedAt ? new Date(j.scannedAt).getTime() : (j.postedAt ? new Date(j.postedAt).getTime() : 0);
+        if (jobTime >= cutoffTime) {
+          const comp = cleanStr(j.company);
+          companyCounts.set(comp, (companyCounts.get(comp) || 0) + 1);
+        }
       }
     }
 
@@ -296,7 +301,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         matchScore: 0,
         matchReason: 'Pending LLM Evaluation',
         sourceTag: rJob.source || 'unknown',
-        retryTier: 1,
+        retryTier: 0,
         isFullDescriptionFetched: false // Marks it as Unmatched
       });
     }
@@ -529,6 +534,13 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
   }
 
   const db = readDb();
+  
+  // Check if we have LLM config before processing unrefined jobs
+  if (!db.llmConfig || !db.llmConfig.endpoint) {
+    console.log('[Refiner] Skipping refinement cycle: Missing LLM configuration.');
+    return 'skipped';
+  }
+
   const unrefinedJobs = db.scannedJobs.filter(j => !j.isFullDescriptionFetched);
   
   // 2. If no unrefined jobs exist, run watchlist/saved link audit check
@@ -565,19 +577,6 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
   globalState.currentlyRefiningJobId = targetJob.id;
 
   try {
-    // Workday Bypass (Free dead check, bypass Cloudflare blocks)
-    if (targetJob.url && targetJob.url.includes('myworkdayjobs.com')) {
-      console.log(`[Refiner] Bypassing Workday job to avoid Cloudflare blocks: "${targetJob.title}"`);
-      const dbIndex = db.scannedJobs.findIndex(j => j.id === targetJob.id);
-      if (dbIndex !== -1) {
-        db.scannedJobs[dbIndex].isRefined = true;
-        db.scannedJobs[dbIndex].isFullDescriptionFetched = true;
-        db.scannedJobs[dbIndex].refinementReason = 'Refinement: Skipped Workday (Cloudflare bypass)';
-        writeDb(db);
-      }
-      return 'dismiss';
-    }
-
     addRefinerLog(`Refiner: Fetching details for "${targetJob.title}" at ${targetJob.company}...`);
     const fetchResult = await fetchJobHtml(targetJob.url);
     
@@ -612,12 +611,22 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     }
 
     if (fetchResult.status !== 200) {
-      job.isFullDescriptionFetched = true;
-      job.isRefined = true;
-      job.refinementReason = `Refinement: Skipped (HTTP ${fetchResult.status})`;
-      writeDb(refreshDb);
-      addRefinerLog(`Refiner Warning: Fetch details for "${job.title}" at ${job.company} failed (HTTP ${fetchResult.status}). Marked processed.`);
-      return;
+      const freshDb = readDb();
+      const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
+      if (targetIdx !== -1) {
+        const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
+        removed.status = 'dismissed';
+        removed.isRefined = true;
+        removed.isFullDescriptionFetched = true;
+        removed.refinementReason = `Refinement: Fetch Details Failed (HTTP ${fetchResult.status})`;
+        if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
+          freshDb.dismissedJobs.unshift(removed);
+        }
+        writeDb(freshDb);
+        addRefinerLog(`Refiner Warning: Fetch details for "${removed.title}" at ${removed.company} failed (HTTP ${fetchResult.status}). Archived.`);
+        console.log(`[Refiner] Auto-dismissed failed job link fetch: "${removed.title}" (HTTP ${fetchResult.status})`);
+      }
+      return 'dismiss';
     }
 
     const text = fetchResult.text;
@@ -679,9 +688,9 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     // 3. Append remaining description instead of overwriting completely
     const appendedDesc = appendRemainingDescription(job.description || '', cleanDescription);
     job.description = appendedDesc;
-    job.isFullDescriptionFetched = true;
+    // Keep isFullDescriptionFetched = false until LLM evaluation succeeds
     job.isRefined = true;
-    job.refinementReason = 'Refinement: Details & Salary Enriched';
+    job.refinementReason = 'Refinement: Details Enriched, Pending LLM';
     writeDb(refreshDb);
 
     // 4. Evaluate job using the LLM Pipeline
@@ -761,13 +770,18 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
       finalJob.isRemote = scoredJob.isRemote;
       finalJob.experienceLevel = scoredJob.experienceLevel;
       finalJob.industry = scoredJob.industry;
+      finalJob.retryTier = scoredJob.retryTier;
       finalJob.isFullDescriptionFetched = true; // IT IS NOW EVALUATED (Matched Job)
+      finalJob.isRefined = true;
+      finalJob.refinementReason = 'Refinement: Details & Salary Enriched';
       
       if (finalJob.matchScore < minScore) {
         // Move to dismissed
         const removed = finalDb.scannedJobs.splice(finalJobIdx, 1)[0];
         removed.status = 'dismissed';
         removed.isRefined = true;
+        removed.isFullDescriptionFetched = true;
+        removed.refinementReason = `Refinement: Low Match Score (${finalJob.matchScore}%)`;
         if (!finalDb.dismissedJobs.some(j => j.id === removed.id)) {
           finalDb.dismissedJobs.unshift(removed);
         }

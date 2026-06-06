@@ -9,9 +9,9 @@ import { readDb, writeDb } from './db';
 export const PORT = 3000;
 
 export const CONTEXT_TIERS = [
-  { resumeChars: 1500, descriptionChars: 4000, label: 'full' },      // Tier 0: Normal
-  { resumeChars: 1000, descriptionChars: 2000, label: 'reduced' },   // Tier 1: Reduced
-  { resumeChars: 600,  descriptionChars: 1000, label: 'minimal' },   // Tier 2: Minimal
+  { resumeChars: 8000, descriptionChars: 25000, label: 'full' },      // Tier 0: Normal
+  { resumeChars: 4000, descriptionChars: 12000, label: 'reduced' },   // Tier 1: Reduced
+  { resumeChars: 1500, descriptionChars: 5000,  label: 'minimal' },   // Tier 2: Minimal
 ];
 
 export const ROLE_TITLE_BLOCKLIST = [

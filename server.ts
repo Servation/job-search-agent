@@ -1577,6 +1577,15 @@ app.get('/api/llm/health', (req, res) => {
   });
 });
 
+// Endpoint to manually reset the LLM circuit breaker (clears degraded mode)
+app.post('/api/llm/health/reset', (req, res) => {
+  const health = globalState.llmHealthState;
+  health.consecutiveFailures = 0;
+  health.degradedMode = false;
+  console.log('[LLM Health] Circuit breaker manually reset.');
+  res.json({ ok: true, message: 'LLM circuit breaker reset. Subsequent requests will start at Tier 0 (full context).' });
+});
+
 app.use('/api/*', (req, res) => {
   res.status(404).json({ error: 'API route not found' });
 });

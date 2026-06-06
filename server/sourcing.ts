@@ -31,10 +31,10 @@ export interface RawCommunityJob {
 
 export async function updateCompanyDirectoriesFromRegistry(): Promise<void> {
   const now = Date.now();
-  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
   
-  if (now - globalState.lastRegistryFetchTime < ONE_WEEK_MS && globalState.lastRegistryFetchTime !== 0) {
-    return; // Use memory cache, last updated within a week
+  if (now - globalState.lastRegistryFetchTime < TWELVE_HOURS_MS && globalState.lastRegistryFetchTime !== 0) {
+    return; // Use memory cache, last updated within 12 hours
   }
   
   console.log('[Registry] Checking for company directory updates from remote registry...');
@@ -1010,93 +1010,97 @@ export async function fetchHackerNewsJobs(
     return [];
   }
 }
+
 export async function fetchWorkdayViaSearchGrounding(
   targetRoles: string[],
   searchLocation: string
 ): Promise<RawCommunityJob[]> {
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const roleQuery = targetRoles.length > 0 ? targetRoles[0] : 'Software Engineer';
-    const locationQuery = searchLocation || 'Remote';
-    // Example query: site:myworkdayjobs.com "Software Engineer" "California"
-    const query = `site:myworkdayjobs.com "${roleQuery}" "${locationQuery}"`;
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const results: RawCommunityJob[] = [];
+  const seenLinks = new Set<string>();
+  const locationQuery = searchLocation || 'Remote';
+  const rolesToSearch = targetRoles.length > 0 ? targetRoles.slice(0, 3) : ['Software Engineer'];
 
-    console.log(`[Search Grounding] Executing DuckDuckGo query for Workday: ${query}`);
-    
-    const searchRes = await fetch(searchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      },
-      signal: ctrl.signal
-    });
-    
-    if (!searchRes.ok) {
-      console.warn(`[Search Grounding] DuckDuckGo returned HTTP ${searchRes.status}`);
-      clearTimeout(tid);
-      return [];
-    }
+  for (const roleQuery of rolesToSearch) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const query = `site:myworkdayjobs.com "${roleQuery}" "${locationQuery}"`;
+      const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
 
-    const html = await searchRes.text();
-    clearTimeout(tid);
-
-    const links: string[] = [];
-    const regex = /<a class="result__url" href="\/\/duckduckgo\.com\/l\/\?uddg=([^"]+)">/g;
-    let match;
-    while ((match = regex.exec(html)) !== null) {
-      try {
-        const decoded = decodeURIComponent(match[1]);
-        if (decoded.includes('myworkdayjobs.com')) {
-          links.push(decoded);
-        }
-      } catch (e) {
-        // ignore decode errors
-      }
-    }
-
-    console.log(`[Search Grounding] Found ${links.length} raw Workday links from search.`);
-
-    const results: RawCommunityJob[] = [];
-    const seenLinks = new Set<string>();
-
-    for (const link of links) {
-      // Remove any tracking parameters from the URL
-      const cleanUrl = link.split('?')[0].split('&')[0];
-      if (seenLinks.has(cleanUrl)) continue;
-      seenLinks.add(cleanUrl);
-
-      // Attempt to parse company name from the workday tenant URL
-      // e.g., https://nvidia.wd5.myworkdayjobs.com -> nvidia
-      let companyName = 'Unknown Workday Company';
-      try {
-        const urlObj = new URL(cleanUrl);
-        const hostParts = urlObj.hostname.split('.');
-        if (hostParts.length > 0) {
-          const tenant = hostParts[0];
-          companyName = tenant.charAt(0).toUpperCase() + tenant.slice(1);
-        }
-      } catch (e) {
-        // Fallback to Unknown
-      }
-
-      results.push({
-        title: roleQuery, // We don't have the exact title, we'll use the query role
-        company: companyName,
-        location: locationQuery, // We don't have the exact location, use the search parameter
-        description: 'Position details will be evaluated from the application site.',
-        url: cleanUrl,
-        postedAt: new Date().toISOString(), // We don't have the exact date
-        type: 'Full-Time',
-        isRemote: locationQuery.toLowerCase().includes('remote'),
-        source: 'workday' as const,
+      console.log(`[Search Grounding] Executing DuckDuckGo query for Workday: ${query}`);
+      
+      const searchRes = await fetch(searchUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        },
+        signal: ctrl.signal
       });
-    }
+      
+      if (!searchRes.ok) {
+        console.warn(`[Search Grounding] DuckDuckGo returned HTTP ${searchRes.status} for ${roleQuery}`);
+        clearTimeout(tid);
+        continue;
+      }
 
-    return results;
-  } catch (err: any) {
-    clearTimeout(tid);
-    console.warn('[Search Grounding] Sourcing failed:', err.message);
-    return [];
+      const html = await searchRes.text();
+      clearTimeout(tid);
+
+      const links: string[] = [];
+      const regex = /<a class="result__url" href="\/\/duckduckgo\.com\/l\/\?uddg=([^"]+)">/g;
+      let match;
+      while ((match = regex.exec(html)) !== null) {
+        try {
+          const decoded = decodeURIComponent(match[1]);
+          if (decoded.includes('myworkdayjobs.com')) {
+            links.push(decoded);
+          }
+        } catch (e) {
+          // ignore decode errors
+        }
+      }
+
+      console.log(`[Search Grounding] Found ${links.length} raw Workday links from search for "${roleQuery}".`);
+
+      for (const link of links) {
+        // Remove any tracking parameters from the URL
+        const cleanUrl = link.split('?')[0].split('&')[0];
+        if (seenLinks.has(cleanUrl)) continue;
+        seenLinks.add(cleanUrl);
+
+        let companyName = 'Unknown Workday Company';
+        try {
+          const urlObj = new URL(cleanUrl);
+          const hostParts = urlObj.hostname.split('.');
+          if (hostParts.length > 0) {
+            const tenant = hostParts[0];
+            companyName = tenant.charAt(0).toUpperCase() + tenant.slice(1);
+          }
+        } catch (e) {
+          // Fallback to Unknown
+        }
+
+        results.push({
+          title: roleQuery,
+          company: companyName,
+          location: locationQuery,
+          description: 'Position details will be evaluated from the application site.',
+          url: cleanUrl,
+          postedAt: new Date().toISOString(),
+          type: 'Full-Time',
+          isRemote: locationQuery.toLowerCase().includes('remote'),
+          source: 'workday' as const,
+        });
+      }
+      
+      // Add slight delay between queries to avoid DuckDuckGo rate limiting
+      if (rolesToSearch.length > 1) {
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch (err: any) {
+      clearTimeout(tid);
+      console.warn(`[Search Grounding] Sourcing failed for ${roleQuery}:`, err.message);
+    }
   }
+
+  return results;
 }

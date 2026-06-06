@@ -26,7 +26,8 @@ A premium, agentic job search cockpit designed to automate candidate job matchin
 * **Years of Experience (YoE) Match Safeguards**:
   * Strict title-based blocking (e.g., Staff/Principal roles blocked for `< 5` YoE, Lead roles blocked for `< 4` YoE, and Senior roles for `< 3` YoE).
   * Regex-based description scanning filters out listings requesting `yearsOfExperience + 2` years of experience *before* calling the LLM.
-* **Strict Requirement Mismatch Penalty**: Implements a strict scoring deduction (3-4 points) if your resume lacks explicitly stated "Must-have" or "Required" skills, forcing mismatched jobs below your review threshold instead of producing falsely inflated scores.
+* **Criteria-Based Evaluation Rubric**: Extracts non-negotiable core requirements from the job description, cross-references them against your resume for explicit evidence, and calculates the match score strictly as the percentage of requirements met (e.g., if 4 out of 5 core requirements are met, score is 80%). It also requires a detailed justification highlighting both matched and missing skills in the match reason.
+* **Company Match Quota (Rolling Window Limit)**: Restricts the maximum number of matches kept from a single company (e.g., max 3) within a 4-day rolling window to prevent job board saturation. Dismissing a job immediately refunds the company match quota slot.
 * **Expanded Evaluation Context**: Passes up to 4,000 characters of the job description to the LLM to ensure the actual requirements at the bottom are read (bypassing generic "About Us" boilerplates).
 * **HTML Tag Sanitization**: Standardizes descriptions and removes escaping/entities safely before rendering.
 

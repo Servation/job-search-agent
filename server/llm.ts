@@ -150,6 +150,11 @@ export async function queryCustomLLMAdaptive(
 
   const maxAttempts = 3;
   let lastError: any = null;
+  // Track how many times we actually retried *within this request* due to failures.
+  // The returned tier reflects actual context reduction, not just the degraded-mode
+  // start offset — so jobs that succeed on their first attempt don't get flagged as
+  // "Reduced Context" just because the circuit breaker was tripped earlier.
+  let retryCount = 0;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const currentTierIndex = Math.min(startTier + attempt, CONTEXT_TIERS.length - 1);
@@ -172,13 +177,24 @@ export async function queryCustomLLMAdaptive(
       health.degradedMode = false;
       health.totalSuccesses++;
 
+      // Report retryCount (number of actual retries within this call) rather than
+      // currentTierIndex so that a job evaluated at Tier 1 solely because the
+      // circuit breaker was in degraded mode — but which succeeded on its first
+      // attempt — is NOT shown as "Reduced Context" in the UI.
       return {
         content: result,
-        tier: currentTierIndex
+        tier: retryCount
       };
     } catch (err: any) {
       lastError = err;
-      console.warn(`[queryCustomLLMAdaptive] Attempt ${attempt + 1} failed: ${err.message || err}`);
+      const isTimeout = err.name === 'AbortError' || (err.message || '').includes('Timeout');
+      console.warn(`[queryCustomLLMAdaptive] Attempt ${attempt + 1} failed (${isTimeout ? 'timeout' : 'error'}): ${err.message || err}`);
+
+      // Only count genuine timeouts/aborts toward the circuit breaker — not HTTP
+      // errors (4xx/5xx) or other transient issues unrelated to LLM slowness.
+      if (isTimeout) {
+        retryCount++;
+      }
 
       if (attempt < maxAttempts - 1) {
         const backoffBase = 1500 * Math.pow(1.5, attempt);
@@ -190,13 +206,21 @@ export async function queryCustomLLMAdaptive(
     }
   }
 
-  // All attempts failed! Trigger degraded mode if threshold reached
-  health.consecutiveFailures++;
-  health.totalFailures++;
+  // All attempts failed! Only trigger degraded mode for timeout-related failures.
+  const isTimeoutFailure = lastError?.name === 'AbortError' || (lastError?.message || '').includes('Timeout');
+  if (isTimeoutFailure) {
+    health.consecutiveFailures++;
+    health.totalFailures++;
 
-  if (health.consecutiveFailures >= 3 && !health.degradedMode) {
-    health.degradedMode = true;
-    console.warn(`[queryCustomLLMAdaptive] ⚠️ LLM Circuit Breaker: 3 consecutive failures reached. Entering DEGRADED mode for subsequent requests!`);
+    if (health.consecutiveFailures >= 3 && !health.degradedMode) {
+      health.degradedMode = true;
+      console.warn(`[queryCustomLLMAdaptive] ⚠️ LLM Circuit Breaker: 3 consecutive timeouts reached. Entering DEGRADED mode for subsequent requests!`);
+    }
+  } else {
+    // Non-timeout failure — reset consecutive failures so transient errors don't
+    // trip the circuit breaker and cause unnecessary context degradation.
+    health.consecutiveFailures = 0;
+    health.totalFailures++;
   }
 
   throw lastError || new Error(`LLM Query failed after ${maxAttempts} adaptive attempts.`);
@@ -305,7 +329,7 @@ export async function scoreCommunityJobs(
         llmConfig.apiKey,
         llmConfig.modelName,
         promptBuilder,
-        (llmConfig.timeout || 30) * 1000,
+        (llmConfig.timeout || 120) * 1000,
         isHN
       );
 

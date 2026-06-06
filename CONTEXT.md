@@ -36,3 +36,6 @@ The practice of throttling LLM evaluation requests using synthetic delays (e.g. 
 
 ### Requirement Mismatch Penalty
 A mandatory deduction rule during Match Evaluation that enforces strict negative scoring (deducting 30-40 points) when a candidate lacks explicitly requested "Must-have" or "Required" skills from the job description.
+
+### Company Match Quota
+A rolling time-window restriction that limits the maximum number of distinct job matches sourced from a single company. Designed to prevent board saturation by a single high-volume employer. Jobs sourced outside the rolling time window (e.g., older than 4 days) do not count toward the quota. Additionally, jobs moved to the Dismissed state immediately free up their quota slot (refunding the limit).
