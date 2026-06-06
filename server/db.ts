@@ -134,3 +134,80 @@ export function writeDb(db: DatabaseSchema) {
     console.error('[DB] Error writing database file:', err);
   }
 }
+
+export async function readDbAsync(): Promise<DatabaseSchema> {
+  try {
+    try {
+      await fs.promises.access(DB_PATH, fs.constants.F_OK);
+    } catch {
+      return {
+        scannedJobs: [],
+        watchlist: [],
+        savedJobs: [],
+        dismissedJobs: [],
+        profile: null,
+        llmConfig: null,
+        logs: [],
+        stats: {
+          totalScanned: 0,
+          duplicatesPrevented: 0,
+          llmEvaluations: 0,
+          totalSourced: 0
+        }
+      };
+    }
+
+    const data = await fs.promises.readFile(DB_PATH, 'utf-8');
+    const parsed = JSON.parse(data);
+    const parsedStats = parsed.stats || {};
+    const db: DatabaseSchema = {
+      scannedJobs: parsed.scannedJobs || [],
+      watchlist: parsed.watchlist || [],
+      savedJobs: parsed.savedJobs || [],
+      dismissedJobs: parsed.dismissedJobs || [],
+      profile: parsed.profile || null,
+      llmConfig: parsed.llmConfig || null,
+      logs: parsed.logs || [],
+      stats: {
+        totalScanned: typeof parsedStats.totalScanned === 'number' ? parsedStats.totalScanned : 0,
+        duplicatesPrevented: typeof parsedStats.duplicatesPrevented === 'number' ? parsedStats.duplicatesPrevented : 0,
+        llmEvaluations: typeof parsedStats.llmEvaluations === 'number' ? parsedStats.llmEvaluations : 0,
+        totalSourced: typeof parsedStats.totalSourced === 'number' ? parsedStats.totalSourced : 0
+      },
+      workdayDirectory: parsed.workdayDirectory || [],
+      pendingWorkdayValidation: parsed.pendingWorkdayValidation || []
+    };
+
+    const modified = cleanDbScannedJobs(db);
+    if (modified) {
+      await fs.promises.writeFile(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+    }
+    return db;
+  } catch (err) {
+    console.error('[DB] Error reading database file:', err);
+  }
+  return {
+    scannedJobs: [],
+    watchlist: [],
+    savedJobs: [],
+    dismissedJobs: [],
+    profile: null,
+    llmConfig: null,
+    logs: [],
+    stats: {
+      totalScanned: 0,
+      duplicatesPrevented: 0,
+      llmEvaluations: 0,
+      totalSourced: 0
+    }
+  };
+}
+
+export async function writeDbAsync(db: DatabaseSchema): Promise<void> {
+  try {
+    cleanDbScannedJobs(db);
+    await fs.promises.writeFile(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[DB] Error writing database file:', err);
+  }
+}

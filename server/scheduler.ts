@@ -5,7 +5,7 @@
 
 import { Job, PreventedDuplicate } from '../src/types';
 import { globalState, addRefinerLog } from './config';
-import { readDb, writeDb } from './db';
+import { readDb, writeDb, readDbAsync, writeDbAsync } from './db';
 import { 
   extractRoleKeywords, 
   checkDescriptionLocationMismatch, 
@@ -36,7 +36,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
   }
   globalState.isSourcingActive = true;
   try {
-    const db = readDb();
+    const db = await readDbAsync();
   if (!db.profile || !db.profile.rawText) {
     const skipMsg = isManual 
       ? 'Search Agent skipped: Profile not configured.'
@@ -96,7 +96,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
       db.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
     }
     db.stats.totalSourced += raw.length;
-    writeDb(db);
+    await writeDbAsync(db);
     
     if (!db.llmConfig) {
       console.log('[Refiner] Background sourcing: Missing LLM configuration. Skipping evaluation.');
@@ -260,18 +260,18 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         : 'Refiner: Background job sourcing check finished. No new unique jobs discovered.';
       addRefinerLog(doneLog);
       console.log(isManual ? '[Search Agent] Sourcing ran: No new candidate jobs found.' : '[Refiner] Background sourcing ran: No new candidate jobs found.');
-      const finalDb = readDb();
+      const finalDb = await readDbAsync();
       if (!finalDb.stats) {
         finalDb.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
       }
       finalDb.stats.duplicatesPrevented += preventedDuplicates.length;
-      writeDb(finalDb);
+      await writeDbAsync(finalDb);
       return preventedDuplicates;
     }
 
     // Add all candidates directly to the Unmatched queue without LLM scoring
     const toAdd: Job[] = [];
-    const freshDb = readDb();
+    const freshDb = await readDbAsync();
     if (!freshDb.stats) {
       freshDb.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
     }
@@ -348,7 +348,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
       );
     }
     
-    writeDb(freshDb);
+    await writeDbAsync(freshDb);
     return preventedDuplicates;
   } catch (err: any) {
     const errorLog = isManual
@@ -363,7 +363,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
 }
 
 export async function runLinkAuditCycle() {
-  const db = readDb();
+  const db = await readDbAsync();
   const allAuditable = db.scannedJobs.map(j => ({ ...j, originList: 'scannedJobs' as const }));
 
   if (allAuditable.length === 0) {
@@ -408,7 +408,7 @@ export async function runLinkAuditCycle() {
   const fetchResult = await fetchJobHtml(target.url);
 
   // Re-read db to avoid overwrite races
-  const refDb = readDb();
+  const refDb = await readDbAsync();
   
   if (fetchResult.status === 404 || fetchResult.status === 410) {
     const idx = refDb.scannedJobs.findIndex(j => j.id === target.id);
@@ -420,7 +420,7 @@ export async function runLinkAuditCycle() {
       if (!refDb.dismissedJobs.some(j => j.id === removed.id)) {
         refDb.dismissedJobs.unshift(removed);
       }
-      writeDb(refDb);
+      await writeDbAsync(refDb);
       addRefinerLog(`Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Link Dead (${fetchResult.status}))`);
       console.log(`[Refiner] Audit: Discovered job closed -> dismissed: "${removed.title}"`);
     }
@@ -446,7 +446,7 @@ export async function runLinkAuditCycle() {
         if (!refDb.dismissedJobs.some(j => j.id === removed.id)) {
           refDb.dismissedJobs.unshift(removed);
         }
-        writeDb(refDb);
+        await writeDbAsync(refDb);
         addRefinerLog(`Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Position Closed)`);
         console.log(`[Refiner] Audit: Discovered job closed -> dismissed: "${removed.title}"`);
       }
@@ -470,7 +470,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     return 'skipped';
   }
 
-  const freshDb = readDb();
+  const freshDb = await readDbAsync();
   const now = Date.now();
 
   // 1. Check if we should run background sourcing
@@ -498,13 +498,13 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     const toValidate = pendingQueue.slice(0, 2);
     const remaining = pendingQueue.slice(2);
     freshDb.pendingWorkdayValidation = remaining;
-    writeDb(freshDb);
+    await writeDbAsync(freshDb);
     
     for (const item of toValidate) {
       console.log(`[Discovery] Probing candidate Workday host: ${item.tenant} (${item.host}) using site: ${item.site}...`);
       try {
         const validation = await validateWorkdayHost(item.host, item.tenant, item.site);
-        const postDb = readDb();
+        const postDb = await readDbAsync();
         if (validation.success && validation.resolvedSite) {
           if (!postDb.workdayDirectory) postDb.workdayDirectory = [];
           const exists = postDb.workdayDirectory.some(
@@ -526,14 +526,14 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
           console.log(`[Discovery] Validation FAILED: Rejected Workday candidate "${item.tenant}" (${item.host})`);
           addRefinerLog(`System Discovery: Rejected invalid or blocked Workday host candidate "${item.tenant}" (${item.host})`);
         }
-        writeDb(postDb);
+        await writeDbAsync(postDb);
       } catch (err: any) {
         console.error(`[Discovery] Unexpected validation error for ${item.tenant}:`, err.message);
       }
     }
   }
 
-  const db = readDb();
+  const db = await readDbAsync();
   
   // Check if we have LLM config before processing unrefined jobs
   if (!db.llmConfig || !db.llmConfig.endpoint) {
@@ -580,7 +580,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     addRefinerLog(`Refiner: Fetching details for "${targetJob.title}" at ${targetJob.company}...`);
     const fetchResult = await fetchJobHtml(targetJob.url);
     
-    const refreshDb = readDb();
+    const refreshDb = await readDbAsync();
     const jobIdx = refreshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
     
     if (jobIdx === -1) {
@@ -592,7 +592,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
 
     // If HTTP status is 404 or 410, it's a dead link. Move to dismissed/archived.
     if (fetchResult.status === 404 || fetchResult.status === 410) {
-      const freshDb = readDb();
+      const freshDb = await readDbAsync();
       const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
       if (targetIdx !== -1) {
         const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
@@ -603,7 +603,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
         if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
           freshDb.dismissedJobs.unshift(removed);
         }
-        writeDb(freshDb);
+        await writeDbAsync(freshDb);
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Link Dead HTTP ${fetchResult.status})`);
         console.log(`[Refiner] Auto-dismissed dead job link: "${removed.title}" (${fetchResult.status})`);
       }
@@ -611,7 +611,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     }
 
     if (fetchResult.status !== 200) {
-      const freshDb = readDb();
+      const freshDb = await readDbAsync();
       const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
       if (targetIdx !== -1) {
         const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
@@ -622,7 +622,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
         if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
           freshDb.dismissedJobs.unshift(removed);
         }
-        writeDb(freshDb);
+        await writeDbAsync(freshDb);
         addRefinerLog(`Refiner Warning: Fetch details for "${removed.title}" at ${removed.company} failed (HTTP ${fetchResult.status}). Archived.`);
         console.log(`[Refiner] Auto-dismissed failed job link fetch: "${removed.title}" (HTTP ${fetchResult.status})`);
       }
@@ -641,7 +641,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
       lowerText.includes('vacancy has been filled');
 
     if (isClosed) {
-      const freshDb = readDb();
+      const freshDb = await readDbAsync();
       const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
       if (targetIdx !== -1) {
         const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
@@ -652,7 +652,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
         if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
           freshDb.dismissedJobs.unshift(removed);
         }
-        writeDb(freshDb);
+        await writeDbAsync(freshDb);
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Position Closed)`);
         console.log(`[Refiner] Auto-dismissed closed job posting: "${removed.title}"`);
       }
@@ -667,7 +667,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     const locationMismatch = checkDescriptionLocationMismatch(cleanDescription, searchLocation, prefersRemote);
     
     if (locationMismatch) {
-      const freshDb = readDb();
+      const freshDb = await readDbAsync();
       const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
       if (targetIdx !== -1) {
         const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
@@ -678,7 +678,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
         if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
           freshDb.dismissedJobs.unshift(removed);
         }
-        writeDb(freshDb);
+        await writeDbAsync(freshDb);
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: ${locationMismatch})`);
         console.log(`[Refiner] Auto-dismissed job with location mismatch: "${removed.title}" (${locationMismatch})`);
       }
@@ -691,7 +691,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     // Keep isFullDescriptionFetched = false until LLM evaluation succeeds
     job.isRefined = true;
     job.refinementReason = 'Refinement: Details Enriched, Pending LLM';
-    writeDb(refreshDb);
+    await writeDbAsync(refreshDb);
 
     // 4. Evaluate job using the LLM Pipeline
     const minScore = refreshDb.profile?.minMatchScore || 70;
@@ -751,7 +751,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
       () => {}
     );
 
-    const finalDb = readDb();
+    const finalDb = await readDbAsync();
     if (!finalDb.stats) {
       finalDb.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
     }
@@ -787,18 +787,18 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
         }
         addRefinerLog(`Refiner: Skipped "${removed.title}" (Score ${removed.matchScore}% < ${minScore}%: ${removed.matchReason})`);
         console.log(`[Refiner] Dismissed job due to low score: ${removed.matchScore}%`);
-        writeDb(finalDb);
+        await writeDbAsync(finalDb);
         return 'dismiss';
       } else {
         // Keep in scannedJobs (Matched)
         finalJob.isRefined = true;
         addRefinerLog(`Refiner: Successfully evaluated "${finalJob.title}" (Score: ${finalJob.matchScore}%)`);
         console.log(`[Refiner] Evaluated job matches criteria: ${finalJob.matchScore}%`);
-        writeDb(finalDb);
+        await writeDbAsync(finalDb);
         return 'match';
       }
     }
-    writeDb(finalDb);
+    await writeDbAsync(finalDb);
     return 'skipped';
   } catch (err: any) {
     console.error('[Refiner] Error in job refinement details processing:', err);
