@@ -535,7 +535,7 @@ app.post('/api/jobs/evaluate', async (req, res) => {
         3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
         
         Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
+        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
         } else {
           return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
         Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
@@ -555,7 +555,7 @@ app.post('/api/jobs/evaluate', async (req, res) => {
         - If the job explicitly requires more than 2 years above the candidate's years of experience (from the Experience rule), you MUST score it 0 and state the reason as "Experience Mismatch: Requires X years, candidate has Y years".
         
         Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
+        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
         }
       };
       
@@ -631,11 +631,25 @@ app.post('/api/jobs/scan', async (req, res) => {
 
     // Build the experience qualifier string for prompts
     const experienceContext = yearsOfExperience > 0
-      ? `Candidate has ${yearsOfExperience} years of experience. Apply these rules when scoring:
+      ? `Candidate has ${yearsOfExperience} years of experience.
+
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
+
+         EXPERIENCE RULES:
          1. OVERQUALIFIED (job requires LESS than candidate's years): Always acceptable — do NOT reduce matchScore for being overqualified. A candidate with ${yearsOfExperience} yrs applying to a job requiring 2 yrs is a perfectly valid match.
          2. CLOSE MATCH (job requires up to ${yearsOfExperience + 2} yrs): Fully acceptable — score normally with no penalty.
          3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
-      : 'Candidate has not specified their years of experience — do not penalise based on experience requirements in either direction.';
+      : `Candidate has not specified their years of experience — do not penalise based on experience requirements in either direction.
+
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.`;
 
     // Extract role keywords for community source filtering
     const roleKeywords = extractRoleKeywords(targetRoles);
@@ -755,8 +769,8 @@ app.post('/api/jobs/scan', async (req, res) => {
         ${JSON.stringify(savedJobs.map((j: any) => ({ title: j.title, company: j.company })))}
         
         Evaluate each vacancy found in the search results against the resume:
-        - Assign a "matchScore" from 0 to 100 on how well their skills match the job description.
-        - Calculate "matchReason" detailing how the job fits their experience.
+        - Assign a "matchScore" from 0 to 100 based on the CRITERIA-BASED EVALUATION RUBRIC.
+        - Calculate "matchReason" detailing how the job fits their experience and what required skills are missing.
         - Identify if the job is "Full-Time", "Contract", or "Part-Time".
         - Identify whether it offers a W2 relationship.
         - Explicitly classify "industry", "experienceLevel" (Junior, Mid, Senior, Lead), "isRemote" (true/false), and "salaryNum" (numeric value like 120000).
@@ -785,7 +799,7 @@ app.post('/api/jobs/scan', async (req, res) => {
                 description: { type: Type.STRING, description: 'Short, clean 2-3 sentence overview of responsibilities' },
                 url: { type: Type.STRING, description: 'Direct apply URL, job listing page, or company careers page for this specific job posting (do NOT return generic job search engine URLs, search results, or homepages)' },
                 matchScore: { type: Type.INTEGER, description: 'Match rate against resume from 0 to 100' },
-                matchReason: { type: Type.STRING, description: 'Brief custom analysis on why it fits' },
+                matchReason: { type: Type.STRING, description: 'E.g. Met 3/4 requirements. Missing explicit AWS experience.' },
                 skillsRequired: {
                   type: Type.ARRAY,
                   items: { type: Type.STRING },
@@ -851,7 +865,7 @@ app.post('/api/jobs/scan', async (req, res) => {
                 Your response MUST be a valid JSON object matching this schema:
                 {
                   "matchScore": 85, // Integer from 0 to 100 representing how well the candidate's skills match the job description
-                  "matchReason": "One sentence matching explanation under 15 words."
+                  "matchReason": "E.g. Met 3/4 requirements. Missing explicit AWS experience."
                 }
                 
                 Return ONLY the raw JSON object. Do not include markdown code blocks (such as \`\`\`json) or any extra conversational text.
@@ -1034,7 +1048,7 @@ app.post('/api/jobs/scan', async (req, res) => {
                 "isW2": true, // true if standard W2/direct job, false if C2C/1099
                 "description": "Short 2-3 sentence overview of responsibilities.",
                 "matchScore": 85, // Integer from 0 to 100 on how well their skills match the job description
-                "matchReason": "One sentence matching explanation under 15 words.",
+                "matchReason": "E.g. Met 3/4 requirements. Missing explicit AWS experience.",
                 "skillsRequired": ["Skill 1", "Skill 2"],
                 "industry": "Industry category (e.g. Technology)",
                 "experienceLevel": "Junior, Mid, Senior, or Lead",

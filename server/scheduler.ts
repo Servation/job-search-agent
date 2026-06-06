@@ -4,7 +4,7 @@
  */
 
 import { Job, PreventedDuplicate } from '../src/types';
-import { globalState, addRefinerLog, REFINER_INTERVAL_MS } from './config';
+import { globalState, addRefinerLog } from './config';
 import { readDb, writeDb } from './db';
 import { 
   extractRoleKeywords, 
@@ -105,12 +105,25 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
     }
 
     const experienceContext = yearsOfExperience > 0
-      ? `Candidate has ${yearsOfExperience} years of experience. Filter rules:
+      ? `Candidate has ${yearsOfExperience} years of experience.
+
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
+
+         EXPERIENCE RULES:
          1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
          2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
-         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.
-         4. REQUIREMENT MISMATCH PENALTY: If the job description lists specific "Required", "Must-have", or "Basic Qualifications" skills (e.g. specific languages, frameworks, degrees) and the candidate's resume does NOT contain them, you must penalize the matchScore by deducting exactly 3 to 4 points.`
-      : "Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.";
+         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
+      : `Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.
+
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.`;
 
     // Deduplicate against database and track company counts
     const seenKeys = new Set<string>();
@@ -266,7 +279,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         company: rJob.company,
         location: rJob.location || 'Not specified',
         salary: 'Not specified',
-        type: 'Unknown',
+        type: 'Full-Time',
         isW2: true,
         description: '', // pending full fetch
         url: rJob.url,
@@ -278,12 +291,12 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         isRemote: rJob.location?.toLowerCase().includes('remote') || false,
         skillsRequired: [],
         industry: 'Tech',
-        experienceLevel: 'Not specified',
+        experienceLevel: 'Mid',
         salaryNum: 0,
         matchScore: 0,
         matchReason: 'Pending LLM Evaluation',
         sourceTag: rJob.source || 'unknown',
-        retryTier: '1',
+        retryTier: 1,
         isFullDescriptionFetched: false // Marks it as Unmatched
       });
     }
@@ -675,21 +688,36 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     const minScore = refreshDb.profile?.minMatchScore || 70;
     const yearsOfExperience = refreshDb.profile?.yearsOfExperience || 0;
     const experienceContext = yearsOfExperience > 0
-      ? `Candidate has ${yearsOfExperience} years of experience. Filter rules:
+      ? `Candidate has ${yearsOfExperience} years of experience.
+
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
+
+         EXPERIENCE RULES:
          1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
          2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
-         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.
-         4. REQUIREMENT MISMATCH PENALTY: If the job description lists specific "Required", "Must-have", or "Basic Qualifications" skills (e.g. specific languages, frameworks, degrees) and the candidate's resume does NOT contain them, you must penalize the matchScore by deducting exactly 3 to 4 points.`
-      : "Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.";
+         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
+      : `Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.
 
-    const rawJob = {
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.`;
+
+    const rawJob: RawCommunityJob = {
       title: job.title,
       company: job.company,
       url: job.url,
-      source: job.sourceTag,
+      source: (job.sourceTag as any) || 'websearch',
       postedAt: job.postedAt,
       location: job.location,
-      description: cleanDescription
+      description: cleanDescription,
+      type: job.type || 'Full-Time',
+      isRemote: job.isRemote || false,
     };
 
     console.log(`[Refiner] Evaluating job "${targetJob.title}" via LLM...`);
