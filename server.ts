@@ -27,7 +27,8 @@ import {
   normalizeJobUrl, 
   extractJobNumber, 
   stripHtmlCommunity,
-  getDomain
+  getDomain,
+  asyncMapConcurrent
 } from './server/utils';
 import { 
   getAIClient, 
@@ -818,9 +819,11 @@ app.post('/api/jobs/scan', async (req, res) => {
 
       const jobsArray = JSON.parse(response.text || '[]');
       
-      // Verify job URLs in parallel
-      const verifiedJobs = await Promise.all(
-        jobsArray.map(async (job: any) => {
+      // Verify job URLs in parallel with concurrency limit (e.g. 5) to prevent socket exhaustion and rate limiting
+      const verifiedJobs = await asyncMapConcurrent(
+        jobsArray,
+        5,
+        async (job: any) => {
           console.log(`[URL Verification] Verifying URL for "${job.title}" at "${job.company}": ${job.url}`);
           const verification = await verifyJobUrl(job.url);
           console.log(`[URL Verification] Result for "${job.title}":`, verification);
@@ -829,7 +832,7 @@ app.post('/api/jobs/scan', async (req, res) => {
             url: verification.resolvedUrl,
             isUrlVerified: verification.isValid,
           };
-        })
+        }
       );
       
       // If a custom LLM is configured, use it to evaluate match scores and match reasons

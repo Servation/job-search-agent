@@ -6,6 +6,34 @@
 import { ROLE_TITLE_BLOCKLIST, ROLE_KEYWORD_EXCLUSIONS, SLUG_DISPLAY_NAMES } from './config';
 
 /**
+ * Utility to execute an asynchronous map operation with a concurrency limit.
+ * Helps prevent socket exhaustion and rate-limiting when making numerous parallel HTTP requests.
+ */
+export async function asyncMapConcurrent<T, U>(
+  array: T[],
+  limit: number,
+  mapper: (item: T) => Promise<U>
+): Promise<U[]> {
+  const results: U[] = new Array(array.length);
+  let currentIndex = 0;
+
+  async function worker() {
+    while (currentIndex < array.length) {
+      const index = currentIndex++;
+      results[index] = await mapper(array[index]);
+    }
+  }
+
+  const workers = [];
+  for (let i = 0; i < Math.min(limit, array.length); i++) {
+    workers.push(worker());
+  }
+
+  await Promise.all(workers);
+  return results;
+}
+
+/**
  * Checks if a URL structure corresponds to a specific job application page, rather than a generic root/career page.
  */
 export function isSpecificJobPost(urlStr: string): boolean {
