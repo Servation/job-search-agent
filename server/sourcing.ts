@@ -520,29 +520,51 @@ export async function fetchAshbyJobs(
   );
 }
 
-function updateDynamicCompanyFailure(company: WorkdayCompany, failed: boolean) {
+
+
+function applyDynamicCompanyFailures(failures: { company: WorkdayCompany, failed: boolean }[]) {
+  if (failures.length === 0) return;
+
   const db = readDb();
   if (!db.workdayDirectory) return;
-  const idx = db.workdayDirectory.findIndex(c => c.tenant.toLowerCase() === company.tenant.toLowerCase());
-  if (idx === -1) return; // Static company, we don't prune it here
 
-  const dynamicCompany = db.workdayDirectory[idx];
-  if (failed) {
-    dynamicCompany.consecutiveFailures = (dynamicCompany.consecutiveFailures || 0) + 1;
-    if (dynamicCompany.consecutiveFailures >= 5) {
-      console.log(`[Discovery] Automatically pruned dynamic Workday company "${dynamicCompany.name}" (${dynamicCompany.host}) after 5 consecutive failures.`);
-      addRefinerLog(`System Discovery: Pruned dynamic Workday company "${dynamicCompany.name}" due to 5 consecutive failures.`);
-      db.workdayDirectory.splice(idx, 1);
+  const tenantIndexMap = new Map<string, number>();
+  for (let i = 0; i < db.workdayDirectory.length; i++) {
+    tenantIndexMap.set(db.workdayDirectory[i].tenant.toLowerCase(), i);
+  }
+
+  let dbWasModified = false;
+
+  for (const { company, failed } of failures) {
+    const idx = tenantIndexMap.get(company.tenant.toLowerCase());
+    if (idx === undefined || idx === -1) continue;
+
+    const dynamicCompany = db.workdayDirectory[idx];
+    if (!dynamicCompany) continue;
+
+    if (failed) {
+      dynamicCompany.consecutiveFailures = (dynamicCompany.consecutiveFailures || 0) + 1;
+      if (dynamicCompany.consecutiveFailures >= 5) {
+        console.log(`[Discovery] Automatically pruned dynamic Workday company "${dynamicCompany.name}" (${dynamicCompany.host}) after 5 consecutive failures.`);
+        addRefinerLog(`System Discovery: Pruned dynamic Workday company "${dynamicCompany.name}" due to 5 consecutive failures.`);
+        (db.workdayDirectory as any)[idx] = null;
+      } else {
+        console.log(`[Discovery] Dynamic Workday company "${dynamicCompany.name}" failure count: ${dynamicCompany.consecutiveFailures}/5`);
+      }
+      dbWasModified = true;
     } else {
-      console.log(`[Discovery] Dynamic Workday company "${dynamicCompany.name}" failure count: ${dynamicCompany.consecutiveFailures}/5`);
-    }
-  } else {
-    if (dynamicCompany.consecutiveFailures && dynamicCompany.consecutiveFailures > 0) {
-      console.log(`[Discovery] Reset failure count for dynamic Workday company "${dynamicCompany.name}".`);
-      dynamicCompany.consecutiveFailures = 0;
+      if (dynamicCompany.consecutiveFailures && dynamicCompany.consecutiveFailures > 0) {
+        console.log(`[Discovery] Reset failure count for dynamic Workday company "${dynamicCompany.name}".`);
+        dynamicCompany.consecutiveFailures = 0;
+        dbWasModified = true;
+      }
     }
   }
-  writeDb(db);
+
+  if (dbWasModified) {
+    db.workdayDirectory = db.workdayDirectory.filter(Boolean);
+    writeDb(db);
+  }
 }
 
 export async function fetchWorkdayJobs(
@@ -553,19 +575,23 @@ export async function fetchWorkdayJobs(
   prefersRemote: boolean,
   yearsOfExperience: number = 0
 ): Promise<RawCommunityJob[]> {
-  const db = readDb();
-  const dynamicCompanies = db.workdayDirectory || [];
+  const initialDb = readDb();
+  const dynamicCompanies = initialDb.workdayDirectory || [];
   const mergedCompanies = [...companies];
   const seenTenants = new Set(mergedCompanies.map(c => c.tenant.toLowerCase()));
-  for (const c of dynamicCompanies) {
+
+  for (let i = 0; i < dynamicCompanies.length; i++) {
+    const c = dynamicCompanies[i];
     if (!seenTenants.has(c.tenant.toLowerCase())) {
       mergedCompanies.push(c);
       seenTenants.add(c.tenant.toLowerCase());
     }
   }
 
+  const failuresQueue: { company: WorkdayCompany, failed: boolean }[] = [];
+
   // Batch Workday fetches in groups of 3 to avoid timeouts and rate-limiting
-  return batchPromises(
+  const results = await batchPromises(
     mergedCompanies,
     async (company): Promise<RawCommunityJob[]> => {
       const ctrl = new AbortController();
@@ -598,12 +624,12 @@ export async function fetchWorkdayJobs(
         
         if (!response.ok) {
           console.warn(`[Workday] Fetch failed for ${company.name} (${host}): HTTP ${response.status}`);
-          updateDynamicCompanyFailure(company, true);
+          failuresQueue.push({ company, failed: true });
           return [];
         }
         
         const data = await response.json();
-        updateDynamicCompanyFailure(company, false);
+        failuresQueue.push({ company, failed: false });
         const postings = (data.jobPostings || []) as any[];
         
         const matchingPostings = postings.filter(p => {
@@ -684,12 +710,16 @@ export async function fetchWorkdayJobs(
       } catch (err: any) {
         clearTimeout(tid);
         console.warn(`[Workday] Failed fetching ${company.name} jobs:`, err.message);
-        updateDynamicCompanyFailure(company, true);
+        failuresQueue.push({ company, failed: true });
         return [];
       }
     },
     3
   );
+
+  applyDynamicCompanyFailures(failuresQueue);
+
+  return results;
 }
 
 export async function fetchSmartRecruitersJobs(
