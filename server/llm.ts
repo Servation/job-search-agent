@@ -288,7 +288,7 @@ export async function scoreCommunityJobs(
         3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
         
         Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
+        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
         } else {
           return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
         Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
@@ -296,7 +296,7 @@ export async function scoreCommunityJobs(
         Description: ${job.description.slice(0, descLimit)}
         Experience rule: ${experienceContext}
         Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"One sentence explanation under 15 words.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
+        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
         }
       };
 
