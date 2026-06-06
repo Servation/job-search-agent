@@ -581,7 +581,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     const fetchResult = await fetchJobHtml(targetJob.url);
     
     const refreshDb = await readDbAsync();
-    const jobIdx = refreshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
+    let jobIdx = refreshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
     
     if (jobIdx === -1) {
       console.log(`[Refiner] Job "${targetJob.title}" was removed or changed state while fetching. Skipping.`);
@@ -592,18 +592,17 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
 
     // If HTTP status is 404 or 410, it's a dead link. Move to dismissed/archived.
     if (fetchResult.status === 404 || fetchResult.status === 410) {
-      const freshDb = await readDbAsync();
-      const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
-      if (targetIdx !== -1) {
-        const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
+      if (jobIdx !== -1) {
+        const removed = refreshDb.scannedJobs.splice(jobIdx, 1)[0];
+        jobIdx = -1;
         removed.status = 'dismissed';
         removed.isRefined = true;
         removed.isFullDescriptionFetched = true;
         removed.refinementReason = `Refinement: Link Dead (${fetchResult.status})`;
-        if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
-          freshDb.dismissedJobs.unshift(removed);
+        if (!refreshDb.dismissedJobs.some(j => j.id === removed.id)) {
+          refreshDb.dismissedJobs.unshift(removed);
         }
-        await writeDbAsync(freshDb);
+        await writeDbAsync(refreshDb);
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Link Dead HTTP ${fetchResult.status})`);
         console.log(`[Refiner] Auto-dismissed dead job link: "${removed.title}" (${fetchResult.status})`);
       }
@@ -611,18 +610,17 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     }
 
     if (fetchResult.status !== 200) {
-      const freshDb = await readDbAsync();
-      const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
-      if (targetIdx !== -1) {
-        const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
+      if (jobIdx !== -1) {
+        const removed = refreshDb.scannedJobs.splice(jobIdx, 1)[0];
+        jobIdx = -1;
         removed.status = 'dismissed';
         removed.isRefined = true;
         removed.isFullDescriptionFetched = true;
         removed.refinementReason = `Refinement: Fetch Details Failed (HTTP ${fetchResult.status})`;
-        if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
-          freshDb.dismissedJobs.unshift(removed);
+        if (!refreshDb.dismissedJobs.some(j => j.id === removed.id)) {
+          refreshDb.dismissedJobs.unshift(removed);
         }
-        await writeDbAsync(freshDb);
+        await writeDbAsync(refreshDb);
         addRefinerLog(`Refiner Warning: Fetch details for "${removed.title}" at ${removed.company} failed (HTTP ${fetchResult.status}). Archived.`);
         console.log(`[Refiner] Auto-dismissed failed job link fetch: "${removed.title}" (HTTP ${fetchResult.status})`);
       }
@@ -641,18 +639,17 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
       lowerText.includes('vacancy has been filled');
 
     if (isClosed) {
-      const freshDb = await readDbAsync();
-      const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
-      if (targetIdx !== -1) {
-        const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
+      if (jobIdx !== -1) {
+        const removed = refreshDb.scannedJobs.splice(jobIdx, 1)[0];
+        jobIdx = -1;
         removed.status = 'dismissed';
         removed.isRefined = true;
         removed.isFullDescriptionFetched = true;
         removed.refinementReason = 'Refinement: Position Closed';
-        if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
-          freshDb.dismissedJobs.unshift(removed);
+        if (!refreshDb.dismissedJobs.some(j => j.id === removed.id)) {
+          refreshDb.dismissedJobs.unshift(removed);
         }
-        await writeDbAsync(freshDb);
+        await writeDbAsync(refreshDb);
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Position Closed)`);
         console.log(`[Refiner] Auto-dismissed closed job posting: "${removed.title}"`);
       }
@@ -667,18 +664,17 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     const locationMismatch = checkDescriptionLocationMismatch(cleanDescription, searchLocation, prefersRemote);
     
     if (locationMismatch) {
-      const freshDb = await readDbAsync();
-      const targetIdx = freshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
-      if (targetIdx !== -1) {
-        const removed = freshDb.scannedJobs.splice(targetIdx, 1)[0];
+      if (jobIdx !== -1) {
+        const removed = refreshDb.scannedJobs.splice(jobIdx, 1)[0];
+        jobIdx = -1;
         removed.status = 'dismissed';
         removed.isRefined = true;
         removed.isFullDescriptionFetched = true;
         removed.refinementReason = locationMismatch;
-        if (!freshDb.dismissedJobs.some(j => j.id === removed.id)) {
-          freshDb.dismissedJobs.unshift(removed);
+        if (!refreshDb.dismissedJobs.some(j => j.id === removed.id)) {
+          refreshDb.dismissedJobs.unshift(removed);
         }
-        await writeDbAsync(freshDb);
+        await writeDbAsync(refreshDb);
         addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: ${locationMismatch})`);
         console.log(`[Refiner] Auto-dismissed job with location mismatch: "${removed.title}" (${locationMismatch})`);
       }
