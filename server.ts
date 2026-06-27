@@ -37,7 +37,8 @@ import {
   scoreCommunityJobs,
   buildExtractionPrompt,
   computeMatchScore,
-  parseCandidateYoe
+  parseCandidateYoe,
+  warmUpLLM
 } from './server/llm';
 import { 
   fetchGreenhouseJobs, 
@@ -139,13 +140,18 @@ app.post('/api/resume/parse', async (req, res) => {
     `;
 
     console.log(`[Resume Parse] Querying custom LLM model "${llmConfig.modelName}" at "${llmConfig.endpoint}"`);
+    // Warm the model first so a cold/idle load doesn't blow the parse timeout, and
+    // give parsing a generous budget since it re-emits the full resume text. A
+    // timed-out parse must never wipe the saved profile (guarded in ResumeParser.tsx).
+    await warmUpLLM(llmConfig.endpoint, llmConfig.apiKey, llmConfig.modelName);
+    const parseTimeoutMs = Math.max((llmConfig.timeout || 30), 90) * 1000;
     const responseText = await queryCustomLLM(
       llmConfig.endpoint,
       llmConfig.apiKey,
       llmConfig.modelName,
       prompt,
       2,
-      (llmConfig.timeout || 30) * 1000
+      parseTimeoutMs
     );
 
     // Clean any markdown code blocks if the LLM outputted them anyway

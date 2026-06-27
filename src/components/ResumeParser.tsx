@@ -103,14 +103,14 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
             setSuccessMsg(true);
             setTimeout(() => setSuccessMsg(false), 4500);
           } catch (err: any) {
-            console.warn("PDF Server parsing error. Falling back.", err);
-            addAiLog(`ResumeParser Warning: PDF server processing failed (${err.message || "Unknown error"}). Checking local heuristics...`);
-            setParseError(`Could not parse PDF automatically: ${err.message || 'Verification Error'}. Ensure your LLM model server is online and endpoint configuration in Settings is correct. Alternatively, you can copy and paste the plain text of your resume below.`);
-            // Mock content as a failsafe so they don't break but clearly see the advice
-            const parsedMockName = file.name.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
-            const fallbackContent = `${parsedMockName}\nUploaded PDF: ${file.name}\nPlease copy and paste or input details manually to parse with local heuristics.`;
-            setResumeText(fallbackContent);
-            fallbackParser(fallbackContent);
+            console.warn("PDF Server parsing error.", err);
+            addAiLog(`ResumeParser Warning: PDF server processing failed (${err.message || "Unknown error"}). Existing profile left unchanged.`);
+            // IMPORTANT: do NOT overwrite the saved profile on a failed PDF parse.
+            // Previously this ran the local fallback parser on a placeholder string,
+            // which wiped a good resume/skills/roles when a parse merely timed out.
+            // A PDF gives us no real text to fall back on, so preserve the existing
+            // profile and ask the user to paste the text instead.
+            setParseError(`Could not parse the PDF automatically: ${err.message || 'Verification Error'}. Your saved profile was NOT changed. Ensure your local LLM server is online, then paste your resume text below and click "Parse Resume".`);
           } finally {
             setIsParsing(false);
           }
