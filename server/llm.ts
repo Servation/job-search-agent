@@ -44,7 +44,8 @@ export async function performLLMRequest(
   apiKey: string,
   modelName: string,
   prompt: string,
-  timeoutMs: number
+  timeoutMs: number,
+  temperature: number = 0.1
 ): Promise<string> {
   let targetUrl = endpoint.trim();
   if (targetUrl.endsWith('/chat/completions')) {
@@ -64,7 +65,7 @@ export async function performLLMRequest(
         content: prompt
       }
     ],
-    temperature: 0.1
+    temperature
   };
 
   if (targetUrl.includes('api.openai.com')) {
@@ -171,7 +172,8 @@ export async function queryCustomLLMAdaptive(
   modelName: string,
   promptBuilder: (resumeChars: number, descChars: number) => string,
   baseTimeoutMs = 30000,
-  isHN = false
+  isHN = false,
+  temperature = 0.1
 ): Promise<{ content: string; tier: number }> {
   let startTier = 0;
   let baseTimeout = baseTimeoutMs;
@@ -210,7 +212,7 @@ export async function queryCustomLLMAdaptive(
     health.totalAttempts++;
 
     try {
-      const result = await performLLMRequest(endpoint, apiKey, modelName, prompt, attemptTimeoutMs);
+      const result = await performLLMRequest(endpoint, apiKey, modelName, prompt, attemptTimeoutMs, temperature);
 
       // Success! Reset circuit breaker
       if (health.degradedMode) {
@@ -272,6 +274,92 @@ export async function queryCustomLLMAdaptive(
 import { RawCommunityJob } from './sourcing';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Deterministic match-scoring constants (tunable).
+ * Scoring is split in two: the LLM extracts FACTS (matched/missing core skills,
+ * required years, credential gaps) and these constants turn those facts into a
+ * reproducible 0-100 score. This avoids asking a small local model to perform
+ * unstable multi-step score arithmetic in one shot (the cause of non-reproducible
+ * and negative/saturated scores in the previous single-prompt approach).
+ */
+const SCORE_PENALTY_PER_YEAR = 7;   // points off per year of experience short
+const SCORE_MAX_EXP_PENALTY = 21;   // cap on the experience penalty
+const SCORE_MUSTHAVE_CAP = 55;      // ceiling when an explicit must-have skill is missing
+const SCORE_SPECIALIST_CAP = 40;    // ceiling when a required formal credential is missing (PhD, license)
+const SCORE_CEIL = 97;              // no posting is a literal 100% match
+
+/** Extract the candidate's years of experience from the experienceContext string. */
+export function parseCandidateYoe(experienceContext: string): number {
+  const m = (experienceContext || '').match(/has\s+(\d+)\s*\+?\s*years?/i);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+/**
+ * Builds a fact-EXTRACTION prompt (not a scoring prompt). The model lists the job's
+ * core requirements and which the candidate has/lacks; the score is computed in code
+ * by computeMatchScore(). For Hacker News posts it also extracts company/title/location.
+ */
+export function buildExtractionPrompt(
+  rawText: string,
+  job: { title?: string; company?: string; location?: string; description?: string },
+  yoe: number,
+  isHN: boolean,
+  resumeLimit: number,
+  descLimit: number
+): string {
+  const hnExtras = isHN ? `
+This is a raw Hacker News "Who is hiring?" post — also extract:
+- "company": the actual hiring company (never "Hacker News Community")
+- "title": a concise job title
+- "location": the work location (e.g. "Remote", "San Francisco, CA")` : '';
+  const hnFields = isHN ? `,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"` : '';
+
+  return `You are an expert technical recruiter. Compare the candidate to the job and EXTRACT FACTS ONLY. Do NOT compute a score.
+Candidate resume: """${rawText.slice(0, resumeLimit)}"""
+Candidate years of experience: ${yoe}
+Job: ${job.title || ''} at ${job.company || ''}${job.location ? ' | ' + job.location : ''}
+Job description: """${(job.description || '').slice(0, descLimit)}"""${hnExtras}
+
+Identify the job's CORE technical requirements (concrete languages, frameworks, tools, or degrees that are genuinely required — NOT "nice to have"). Then return ONLY this JSON (no markdown):
+{"coreRequirements":["..."],"matched":["...requirements the candidate clearly has..."],"missing":["...core requirements the candidate lacks..."],"mustHaveMissing":false,"requiredYears":0,"specialistGapMissing":false,"experienceLevel":"Mid","industry":"Technology","salaryNum":0${hnFields}}
+Rules:
+- coreRequirements: concrete technical skills/tools/frameworks/degrees only. Do NOT include years-of-experience, seniority level, or soft skills (leadership/communication) — those are scored separately.
+- matched: count a transferable/equivalent skill as matched (e.g. MySQL or MongoDB satisfies generic "SQL"/"database"; any cloud satisfies "cloud").
+- requiredYears: the MAX years of experience the job requires (integer, 0 if unstated).
+- mustHaveMissing: true only if a skill explicitly marked "required/must-have" is in "missing".
+- specialistGapMissing: true ONLY if the role needs a FORMAL CREDENTIAL the candidate lacks (PhD, first-author publications, professional license, security clearance). A missing technical skill is NOT a specialist gap.`;
+}
+
+/**
+ * Deterministically computes a 0-100 match score from extracted facts.
+ * Reproducible (no LLM arithmetic), never negative or saturated, and self-explaining.
+ */
+export function computeMatchScore(f: any, yoe: number): { score: number; reason: string } {
+  const matched = Array.isArray(f?.matched) ? f.matched : [];
+  const missing = Array.isArray(f?.missing) ? f.missing : [];
+  const core = Array.isArray(f?.coreRequirements) ? f.coreRequirements : [];
+  const matchedN = matched.length;
+  const totalN = Math.max(core.length, matchedN + missing.length, 1);
+  const base = Math.round((100 * matchedN) / totalN);
+
+  const expGap = Math.max(0, (Number(f?.requiredYears) || 0) - yoe);
+  const expPenalty = Math.min(expGap * SCORE_PENALTY_PER_YEAR, SCORE_MAX_EXP_PENALTY);
+
+  let score = base - expPenalty;
+  if (f?.mustHaveMissing) score = Math.min(score, SCORE_MUSTHAVE_CAP);
+  if (f?.specialistGapMissing) score = Math.min(score, SCORE_SPECIALIST_CAP);
+  score = Math.max(0, Math.min(SCORE_CEIL, score));
+
+  const reason =
+    `Met ${matchedN}/${totalN} core` +
+    (missing.length ? ` (missing: ${missing.slice(0, 3).join(', ')})` : '') + '.' +
+    (expGap > 0 ? ` Exp: needs ${f.requiredYears}y, has ${yoe}y (-${expPenalty}).` : '') +
+    (f?.mustHaveMissing ? ' Must-have gap.' : '') +
+    (f?.specialistGapMissing ? ' Specialist gap.' : '');
+
+  return { score, reason };
+}
 
 export async function scoreCommunityJobs(
   jobs: RawCommunityJob[], rawText: string, llmConfig: any,
@@ -339,33 +427,9 @@ export async function scoreCommunityJobs(
 
     try {
       const isHN = job.source === 'hackernews';
-      const promptBuilder = (resumeLimit: number, descLimit: number) => {
-        if (isHN) {
-          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this Hacker News "Who is hiring?" job posting.
-        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
-        Hacker News Post Description:
-        """
-        ${job.description.slice(0, descLimit)}
-        """
-        Experience rule: ${experienceContext}
-        
-        Since this is a raw community forum post, you MUST identify and extract the following:
-        1. "company": The actual name of the hiring company (do NOT return "Hacker News Community").
-        2. "title": A concise job title (e.g. "Senior Software Engineer" or "Full-Stack Developer").
-        3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
-        
-        Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
-        } else {
-          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
-        Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, descLimit)}
-        Experience rule: ${experienceContext}
-        Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
-        }
-      };
+      const yoe = parseCandidateYoe(experienceContext);
+      const promptBuilder = (resumeLimit: number, descLimit: number) =>
+        buildExtractionPrompt(rawText, job, yoe, isHN, resumeLimit, descLimit);
 
       const result = await queryCustomLLMAdaptive(
         llmConfig.endpoint,
@@ -373,18 +437,18 @@ export async function scoreCommunityJobs(
         llmConfig.modelName,
         promptBuilder,
         (llmConfig.timeout || 120) * 1000,
-        isHN
+        isHN,
+        0 // temperature 0 -> reproducible fact extraction
       );
 
-      const txt = result.content;
       const tier = result.tier;
+      const cleaned = result.content.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
+      const facts = JSON.parse(cleaned);
+      const { score, reason } = computeMatchScore(facts, yoe);
 
-      const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
-      const ev = JSON.parse(cleaned);
-      
-      const finalTitle = (job.source === 'hackernews' && ev.title && ev.title !== 'Extracted Title') ? ev.title : base.title;
-      const finalCompany = (job.source === 'hackernews' && ev.company && ev.company !== 'Extracted Company') ? ev.company : base.company;
-      const finalLocation = (job.source === 'hackernews' && ev.location && ev.location !== 'Extracted Location') ? ev.location : base.location;
+      const finalTitle = (isHN && facts.title && facts.title !== 'Extracted Title') ? facts.title : base.title;
+      const finalCompany = (isHN && facts.company && facts.company !== 'Extracted Company') ? facts.company : base.company;
+      const finalLocation = (isHN && facts.location && facts.location !== 'Extracted Location') ? facts.location : base.location;
       
       const existsInSaved = savedJobs.some((s: any) =>
         s.title.toLowerCase().trim() === finalTitle.toLowerCase().trim() &&
@@ -400,11 +464,11 @@ export async function scoreCommunityJobs(
         company: finalCompany,
         location: finalLocation,
         isDuplicate: base.isDuplicate || existsInSaved,
-        matchScore: isBlocked ? 0 : (typeof ev.matchScore === 'number' ? Math.min(100, Math.max(0, ev.matchScore)) : 50),
-        matchReason: isBlocked ? 'Company Blocked' : (ev.matchReason || ''),
-        skillsRequired: ev.skillsRequired || [],
-        industry: ev.industry || '', experienceLevel: ev.experienceLevel || 'Mid',
-        salaryNum: typeof ev.salaryNum === 'number' ? ev.salaryNum : 0,
+        matchScore: isBlocked ? 0 : score,
+        matchReason: isBlocked ? 'Company Blocked' : reason,
+        skillsRequired: Array.isArray(facts.coreRequirements) ? facts.coreRequirements : [],
+        industry: facts.industry || '', experienceLevel: facts.experienceLevel || 'Mid',
+        salaryNum: typeof facts.salaryNum === 'number' ? facts.salaryNum : 0,
         retryTier: tier,
       });
     } catch (e: any) {

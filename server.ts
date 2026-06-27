@@ -23,17 +23,21 @@ import {
   extractRoleKeywords, 
   matchesKeywords, 
   isBlocklistedRole, 
-  normalizeJobUrl, 
-  extractJobNumber, 
+  normalizeJobUrl,
+  extractJobNumber,
   stripHtmlCommunity,
   getDomain,
-  asyncMapConcurrent
+  asyncMapConcurrent,
+  checkDescriptionLocationMismatch
 } from './server/utils';
-import { 
-  getAIClient, 
-  queryCustomLLM, 
-  queryCustomLLMAdaptive, 
-  scoreCommunityJobs 
+import {
+  getAIClient,
+  queryCustomLLM,
+  queryCustomLLMAdaptive,
+  scoreCommunityJobs,
+  buildExtractionPrompt,
+  computeMatchScore,
+  parseCandidateYoe
 } from './server/llm';
 import { 
   fetchGreenhouseJobs, 
@@ -510,83 +514,44 @@ app.post('/api/jobs/evaluate', async (req, res) => {
       console.log(`[Evaluate Endpoint] Scoring ${job.title} at ${job.company} via custom LLM...`);
       const isHN = job.source === 'hackernews' || job.sourceTag === 'hackernews';
       
-      const promptBuilder = (resumeLimit: number, descLimit: number) => {
-        if (isHN) {
-          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this Hacker News "Who is hiring?" job posting.
-        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
-        Hacker News Post Description:
-        """
-        ${job.description.slice(0, descLimit)}
-        """
-        Experience rule: ${experienceContext}
-        
-        Candidate Preferred Location: ${searchLocation}
-        Work Location Settings: Remote Preferred: ${prefersRemote ? 'Yes' : 'No'}, Hybrid Allowed: ${prefersHybrid ? 'Yes' : 'No'}, Onsite Allowed: ${prefersOnSite ? 'Yes' : 'No'}
-        
-        Location/Geographic Constraint Rule:
-        - Check the job description for geographic constraints (e.g. "must reside in Texas", "reside in Canada", "work from Spain").
-        - If the job explicitly restricts candidates to a different state or country than the candidate's preferred location (${searchLocation}), you MUST score it 0 and state the reason as "Location Mismatch: [details]" (e.g. "Location Mismatch: Requires residency in Texas").
-        
-        Experience Match Rule:
-        - Check the job description for required years of experience.
-        - If the job explicitly requires more than 2 years above the candidate's years of experience (from the Experience rule), you MUST score it 0 and state the reason as "Experience Mismatch: Requires X years, candidate has Y years".
-        
-        Since this is a raw community forum post, you MUST identify and extract the following:
-        1. "company": The actual name of the hiring company (do NOT return "Hacker News Community").
-        2. "title": A concise job title (e.g. "Senior Software Engineer" or "Full-Stack Developer").
-        3. "location": The work location (e.g. "Remote", "San Francisco, CA", "Hybrid (New York)").
-        
-        Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000,"company":"Extracted Company","title":"Extracted Title","location":"Extracted Location"}`;
-        } else {
-          return `You are an expert Job Placement Agent. Evaluate the candidate resume against this job.
-        Candidate Resume: """${rawText.slice(0, resumeLimit)}"""
-        Job: ${job.title} at ${job.company} | Location: ${job.location}
-        Description: ${job.description.slice(0, descLimit)}
-        Experience rule: ${experienceContext}
-        
-        Candidate Preferred Location: ${searchLocation}
-        Work Location Settings: Remote Preferred: ${prefersRemote ? 'Yes' : 'No'}, Hybrid Allowed: ${prefersHybrid ? 'Yes' : 'No'}, Onsite Allowed: ${prefersOnSite ? 'Yes' : 'No'}
-        
-        Location/Geographic Constraint Rule:
-        - Check the job description and location field for geographic constraints (e.g. "must reside in Texas", "reside in Canada", "work from Spain").
-        - If the job explicitly restricts candidates to a different state or country than the candidate's preferred location (${searchLocation}), you MUST score it 0 and state the reason as "Location Mismatch: [details]" (e.g. "Location Mismatch: Requires residency in Texas").
-        
-        Experience Match Rule:
-        - Check the job description for required years of experience.
-        - If the job explicitly requires more than 2 years above the candidate's years of experience (from the Experience rule), you MUST score it 0 and state the reason as "Experience Mismatch: Requires X years, candidate has Y years".
-        
-        Return ONLY a raw JSON object (no markdown):
-        {"matchScore":85,"matchReason":"E.g. Met 3/4 requirements. Missing explicit AWS experience.","skillsRequired":["Skill"],"industry":"Technology","experienceLevel":"Senior","salaryNum":120000}`;
-        }
-      };
-      
+      const yoe = parseCandidateYoe(experienceContext);
+
+      // Deterministic location-mismatch gate (replaces the old, unreliable in-prompt rule).
+      const locationMismatch = checkDescriptionLocationMismatch(job.description || '', searchLocation, prefersRemote);
+      if (locationMismatch) {
+        res.json({ ...base, matchScore: 0, matchReason: locationMismatch });
+        return;
+      }
+
+      const promptBuilder = (resumeLimit: number, descLimit: number) =>
+        buildExtractionPrompt(rawText, job, yoe, isHN, resumeLimit, descLimit);
+
       const result = await queryCustomLLMAdaptive(
         llmConfig.endpoint,
         llmConfig.apiKey,
         llmConfig.modelName,
         promptBuilder,
         (llmConfig.timeout || 30) * 1000,
-        isHN
+        isHN,
+        0 // temperature 0 -> reproducible fact extraction
       );
-      
-      const txt = result.content;
+
       const tier = result.tier;
-      
-      const cleaned = txt.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
-      const ev = JSON.parse(cleaned);
-      
+      const cleaned = result.content.trim().replace(/^```(json)?\n?/, '').replace(/\n?```$/, '');
+      const facts = JSON.parse(cleaned);
+      const { score, reason } = computeMatchScore(facts, yoe);
+
       const finalJob = {
         ...base,
-        title: (isHN && ev.title && ev.title !== 'Extracted Title') ? ev.title : base.title,
-        company: (isHN && ev.company && ev.company !== 'Extracted Company') ? ev.company : base.company,
-        location: (isHN && ev.location && ev.location !== 'Extracted Location') ? ev.location : base.location,
-        matchScore: typeof ev.matchScore === 'number' ? Math.min(100, Math.max(0, ev.matchScore)) : 50,
-        matchReason: ev.matchReason || '',
-        skillsRequired: ev.skillsRequired || [],
-        industry: ev.industry || '',
-        experienceLevel: ev.experienceLevel || 'Mid',
-        salaryNum: typeof ev.salaryNum === 'number' ? ev.salaryNum : 0,
+        title: (isHN && facts.title && facts.title !== 'Extracted Title') ? facts.title : base.title,
+        company: (isHN && facts.company && facts.company !== 'Extracted Company') ? facts.company : base.company,
+        location: (isHN && facts.location && facts.location !== 'Extracted Location') ? facts.location : base.location,
+        matchScore: score,
+        matchReason: reason,
+        skillsRequired: Array.isArray(facts.coreRequirements) ? facts.coreRequirements : [],
+        industry: facts.industry || '',
+        experienceLevel: facts.experienceLevel || 'Mid',
+        salaryNum: typeof facts.salaryNum === 'number' ? facts.salaryNum : 0,
         retryTier: tier,
       };
       

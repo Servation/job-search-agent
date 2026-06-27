@@ -710,26 +710,9 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     // 4. Evaluate job using the LLM Pipeline
     const minScore = refreshDb.profile?.minMatchScore || 70;
     const yearsOfExperience = refreshDb.profile?.yearsOfExperience || 0;
-    const experienceContext = yearsOfExperience > 0
-      ? `Candidate has ${yearsOfExperience} years of experience.
-
-         CRITERIA-BASED EVALUATION RUBRIC:
-         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
-         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
-         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
-         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
-
-         EXPERIENCE RULES:
-         1. STARTING MATCH SCORE: Determine the base matchScore solely on skills.
-         2. EXPERIENCE PENALTY: Calculate the maximum years of experience required by the job. If the required years of experience exceeds ${yearsOfExperience}, you MUST subtract 7 from the matchScore for every year they are short. For example, if the job requires 5 years and the candidate has 3, subtract 14 from the base match score.
-         3. PENALTY REASON: If an experience penalty was applied, you must note "Experience Penalty: -X% (Requires Y years, candidate has ${yearsOfExperience} years)" in the matchReason.`
-      : `Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.
-
-         CRITERIA-BASED EVALUATION RUBRIC:
-         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description (e.g., specific programming languages, frameworks, hard skills, or degrees).
-         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
-         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
-         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.`;
+    // Scoring math now lives in computeMatchScore() (server/llm.ts); this string only
+    // needs to carry the candidate's years of experience, which scoreCommunityJobs parses.
+    const experienceContext = `Candidate has ${yearsOfExperience} years of experience.`;
 
     const rawJob: RawCommunityJob = {
       title: job.title,
