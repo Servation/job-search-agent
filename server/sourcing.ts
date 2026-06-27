@@ -115,6 +115,41 @@ export function parseWorkdayUrl(urlStr: string): { host: string; tenant: string;
   }
 }
 
+/**
+ * Fetches a Workday job's full description from its cxs JSON API instead of scraping
+ * the JS-rendered page (which yields no usable text). Returns a {status, text} shape
+ * matching fetchJobHtml so the refiner can use it interchangeably.
+ */
+export async function fetchWorkdayJobDescription(urlStr: string): Promise<{ status: number; text: string }> {
+  const parsed = parseWorkdayUrl(urlStr);
+  if (!parsed) return { status: 0, text: '' };
+  const { host, tenant, site } = parsed;
+  const jobId = urlStr.split('?')[0].split('#')[0].replace(/\/+$/, '').split('/').pop() || '';
+  if (!jobId) return { status: 0, text: '' };
+
+  const detailUrl = `https://${host}/wday/cxs/${tenant}/${site}/job/${jobId}`;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(detailUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Origin': `https://${host}`,
+        'Referer': `https://${host}/en-US/${site}/`
+      },
+      signal: ctrl.signal
+    });
+    clearTimeout(tid);
+    if (!res.ok) return { status: res.status, text: '' };
+    const data = await res.json();
+    const html = data.jobPostingInfo?.jobDescription || '';
+    return { status: 200, text: stripHtmlCommunity(html) };
+  } catch {
+    clearTimeout(tid);
+    return { status: 0, text: '' };
+  }
+}
+
 export function harvestWorkdayUrl(urlStr: string): boolean {
   const parsed = parseWorkdayUrl(urlStr);
   if (!parsed) return false;
@@ -661,7 +696,7 @@ export async function fetchWorkdayJobs(
               
               if (dRes.ok) {
                 const dData = await dRes.json();
-                const jobDescHtml = dData.jobPosting?.jobDescription || '';
+                const jobDescHtml = dData.jobPostingInfo?.jobDescription || '';
                 const desc = stripHtmlCommunity(jobDescHtml).slice(0, 15000);
                 
                 const loc = p.locationsText || 'Specified on site';

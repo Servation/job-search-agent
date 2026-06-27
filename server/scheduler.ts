@@ -20,6 +20,7 @@ import {
   fetchAshbyJobs,
   fetchSmartRecruitersJobs,
   fetchWorkdayJobs,
+  fetchWorkdayJobDescription,
   fetchHackerNewsJobs,
   checkSourceHealth,
   updateCompanyDirectoriesFromRegistry,
@@ -627,7 +628,15 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
 
   try {
     addRefinerLog(`Loading details for "${targetJob.title}" at ${targetJob.company}...`);
-    const fetchResult = await fetchJobHtml(targetJob.url);
+    // Workday job pages are JS SPAs that scrape poorly; pull the description from its
+    // cxs JSON API instead, falling back to HTML scraping only if that fails.
+    const isWorkdayUrl = (targetJob.url || '').includes('myworkdayjobs.com');
+    let fetchResult = isWorkdayUrl
+      ? await fetchWorkdayJobDescription(targetJob.url)
+      : await fetchJobHtml(targetJob.url);
+    if (isWorkdayUrl && (fetchResult.status !== 200 || !fetchResult.text)) {
+      fetchResult = await fetchJobHtml(targetJob.url);
+    }
     
     const refreshDb = await readDbAsync();
     let jobIdx = refreshDb.scannedJobs.findIndex(j => j.id === targetJob.id);
