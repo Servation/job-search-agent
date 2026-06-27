@@ -41,8 +41,6 @@ interface JobScannerProps {
   onScanTriggered: () => void;
   onScanStarted: () => void;
   currentlyRefiningJobId?: string | null;
-  ralphMode: boolean;
-  setRalphMode: (mode: boolean) => void;
 }
 
 export default function JobScanner({
@@ -72,9 +70,7 @@ export default function JobScanner({
   shouldTriggerScan,
   onScanTriggered,
   onScanStarted,
-  currentlyRefiningJobId = null,
-  ralphMode,
-  setRalphMode
+  currentlyRefiningJobId = null
 }: JobScannerProps) {
   const [preventedDuplicates, setPreventedDuplicates] = useState<any[]>([]);
   const [activeScannerTab, setActiveScannerTab] = useState<'matched' | 'unmatched' | 'dismissed'>('matched');
@@ -176,13 +172,13 @@ export default function JobScanner({
   const executeScan = async () => {
     const capacityLimit = profileRef.current.maxDiscoveredJobs || 30;
     if (scannedJobsRef.current.length >= capacityLimit) {
-      setScanMessage(`Scan skipped: Discovered job board is at full capacity (${scannedJobsRef.current.length}/${capacityLimit} slots used). Please dismiss or move some jobs to make space.`);
+      setScanMessage(`Scan skipped: the job board is full (${scannedJobsRef.current.length}/${capacityLimit}). Dismiss or move some jobs to make space.`);
       localStorage.setItem('job_agent_last_run_timestamp', String(Date.now()));
       return;
     }
 
     if (!profile.rawText) {
-      setScanMessage("Please paste or parse a resume first from the profile section!");
+      setScanMessage("Add your resume in the Profile tab first.");
       return;
     }
 
@@ -192,7 +188,7 @@ export default function JobScanner({
     onScanStarted();
     clearAiLogs();
 
-    scannerLog("JobScanner: Initiated instant search trigger on backend...", "fetch");
+    scannerLog("Searching job boards for new postings...", "fetch");
 
     try {
       await fetch('/api/profile/sync', {
@@ -224,7 +220,7 @@ export default function JobScanner({
           await fetch('/api/logs/clear', { method: 'POST' });
         }
         
-        scannerLog("JobScanner: Instant search completed successfully.", "complete");
+        scannerLog("Search complete.", "complete");
         
         if (data.db.stats) {
           onUpdateStats(data.db.stats);
@@ -239,7 +235,7 @@ export default function JobScanner({
       localStorage.setItem('job_agent_last_run_timestamp', String(Date.now()));
 
     } catch (err: any) {
-      setScanMessage(`Instant search encountered an error: ${err.message}`);
+      setScanMessage(`Search failed: ${err.message}`);
     } finally {
       setIsAiRunning(false);
       setScanStatus('idle');
@@ -248,7 +244,7 @@ export default function JobScanner({
 
   const executeRefinement = async () => {
     if (!profile.rawText) {
-      setScanMessage("Please paste or parse a resume first from the profile section!");
+      setScanMessage("Add your resume in the Profile tab first.");
       return;
     }
 
@@ -257,7 +253,7 @@ export default function JobScanner({
     setScanMessage(null);
     onScanStarted();
 
-    scannerLog("JobScanner: Initiated manual LLM matching loop...", "fetch");
+    scannerLog("Scoring jobs against your resume...", "fetch");
 
     try {
       await fetch('/api/profile/sync', {
@@ -276,11 +272,11 @@ export default function JobScanner({
       }
       
       // Note: The loop runs in the background. The polling will pick up the UI changes!
-      scannerLog("JobScanner: Matching loop started in background.", "complete");
+      scannerLog("Matching started.", "complete");
       
     } catch (err: any) {
-      scannerLog(`Manual refinement trigger failed: ${err.message}.`, "filterSkip");
-      setScanMessage(`Refinement trigger encountered an error: ${err.message}`);
+      scannerLog(`Matching failed: ${err.message}`, "filterSkip");
+      setScanMessage(`Matching failed: ${err.message}`);
     } finally {
       // Keep showing as running because the background loop is going, the regular polling will update `isAiRunning`
       setScanStatus('idle');
@@ -292,7 +288,7 @@ export default function JobScanner({
       ...job,
       status: 'applied' as JobStatusType,
       appliedDate: new Date().toISOString(),
-      notes: note || job.notes || 'Saved from AI Agent discovery list'
+      notes: note || job.notes || 'Saved from discovered jobs'
     };
     
     onAddJobs([addedJob]);
@@ -316,7 +312,7 @@ export default function JobScanner({
     const jobToDismiss = scannedJobs.find(j => j.id === id);
     if (jobToDismiss) {
       onDismissJob(jobToDismiss);
-      scannerLog(`Dismissed application: "${jobToDismiss.title}" at ${jobToDismiss.company}. Saved to Dismissed Postings.`, "complete");
+      scannerLog(`Dismissed "${jobToDismiss.title}" at ${jobToDismiss.company}.`, "complete");
     }
     setScannedJobs(prev => prev.filter(j => j.id !== id));
   };
@@ -334,7 +330,7 @@ export default function JobScanner({
         blockedCompanies: [...currentBlocks, cleanCompany]
       };
       onChangeProfile(updatedProfile);
-      addAiLog(`User: Blocked company "${cleanCompany}". Future searches and background evaluations will ignore postings from this employer.`);
+      addAiLog(`Blocked "${cleanCompany}". Future searches will skip this company.`);
     }
   };
 
@@ -346,12 +342,12 @@ export default function JobScanner({
       }
       return prev;
     });
-    scannerLog(`Undismissed job: "${job.title}" at ${job.company} restored to Discovered board.`, "complete");
+    scannerLog(`Restored "${job.title}" at ${job.company}.`, "complete");
   };
 
   const handleReevaluateJob = async (job: Job) => {
     setIsReevaluatingId(job.id);
-    scannerLog(`Triggering manual LLM re-evaluation for "${job.title}" at ${job.company}...`, "fetch");
+    scannerLog(`Re-scoring "${job.title}" at ${job.company}...`, "fetch");
     try {
       const response = await fetch('/api/jobs/reevaluate-single', {
         method: 'POST',
@@ -364,10 +360,10 @@ export default function JobScanner({
       const data = await response.json();
       if (data.success && data.job) {
         setScannedJobs(prev => prev.map(j => j.id === job.id ? data.job : j));
-        scannerLog(`Successfully re-evaluated "${job.title}" (Score: ${data.job.matchScore}%)`, "complete");
+        scannerLog(`Re-scored "${job.title}" (${data.job.matchScore}%).`, "complete");
       }
     } catch (err: any) {
-      scannerLog(`Re-evaluation failed: ${err.message}`, "filterSkip");
+      scannerLog(`Re-scoring failed: ${err.message}`, "filterSkip");
     } finally {
       setIsReevaluatingId(null);
     }
@@ -410,7 +406,7 @@ export default function JobScanner({
               scanStatus === 'running' || isAiRunning ? "bg-primary animate-pulse" : "bg-emerald-500"
             }`} />
             <span className="text-sm font-headline font-bold text-on-surface uppercase tracking-widest">
-              {scanStatus === 'running' ? "Sourcing Jobs..." : isAiRunning ? "Evaluating Jobs..." : "System Idle"}
+              {scanStatus === 'running' ? "Searching..." : isAiRunning ? "Scoring jobs..." : "Idle"}
             </span>
           </div>
         </div>
@@ -426,7 +422,7 @@ export default function JobScanner({
                 >
                   <Play className="w-5 h-5 group-hover:animate-pulse" />
                   <span className="flex items-center gap-2">
-                    Trigger Sourcing
+                    Find Jobs
                     <span className="tabular-nums font-mono text-[11px] bg-black/20 px-2 py-1 border-2 border-black/10">{formatScrapeTime(timers.scrape)}</span>
                   </span>
                 </button>
@@ -437,7 +433,7 @@ export default function JobScanner({
                 >
                   <Sparkles className="w-5 h-5" />
                   <span className="flex items-center gap-2">
-                    Trigger Matching
+                    Score Jobs
                     <span className="tabular-nums font-mono text-[11px] bg-black/20 px-2 py-1 border-2 border-black/10">{formatMatchTime(timers.match)}</span>
                   </span>
                 </button>
@@ -475,8 +471,6 @@ export default function JobScanner({
       <EventLogsConsole
         scanStatus={scanStatus}
         aiLogs={aiLogs}
-        ralphMode={ralphMode}
-        setRalphMode={setRalphMode}
         clearAiLogs={clearAiLogs}
       />
 
@@ -540,7 +534,7 @@ export default function JobScanner({
         {activeScannerTab === 'matched' && (
           <div className="space-y-4" id="matched-jobs-list">
             <div className="flex justify-between items-center px-1">
-              <span className="text-sm uppercase font-headline font-bold tracking-widest text-primary">Evaluated Matches</span>
+              <span className="text-sm uppercase font-headline font-bold tracking-widest text-primary">Matches</span>
               <span className="text-xs text-on-surface-variant font-mono font-bold border-2 border-outline-variant px-2 py-1">
                 {matchedJobs.length} / {profile.maxDiscoveredJobs || 30} slots used
               </span>
@@ -548,7 +542,7 @@ export default function JobScanner({
 
             {matchedJobs.length === 0 ? (
               <div className="text-center py-16 bg-surface-container-lowest border-2 border-dashed border-outline text-on-surface-variant font-headline font-bold uppercase tracking-widest">
-                No matched jobs yet. Wait for the LLM to finish evaluating discovered postings.
+                No matches yet. The agent is still scoring jobs.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-6">
@@ -581,7 +575,7 @@ export default function JobScanner({
         {activeScannerTab === 'unmatched' && (
           <div className="space-y-4" id="unmatched-jobs-list">
             <div className="flex justify-between items-center px-1">
-              <span className="text-sm uppercase font-headline font-bold tracking-widest text-on-surface">Pending Evaluation</span>
+              <span className="text-sm uppercase font-headline font-bold tracking-widest text-on-surface">Waiting to be scored</span>
               <span className="text-xs text-on-surface-variant font-mono font-bold border-2 border-outline-variant px-2 py-1">
                 {unmatchedJobs.length} / 100 slots used
               </span>
@@ -589,7 +583,7 @@ export default function JobScanner({
 
             {unmatchedJobs.length === 0 ? (
               <div className="text-center py-16 bg-surface-container-lowest border-2 border-dashed border-outline text-on-surface-variant font-headline font-bold uppercase tracking-widest">
-                No unevaluated jobs in the queue.
+                Nothing waiting to be scored.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-6">
@@ -625,14 +619,14 @@ export default function JobScanner({
           <div className="space-y-4">
             <div className="flex justify-between items-center px-1">
               <span className="text-sm uppercase font-headline font-bold tracking-widest text-on-surface flex items-center gap-2">
-                🗑️ Dismissed Postings Archive ({dismissedJobs.length})
+                🗑️ Dismissed jobs ({dismissedJobs.length})
               </span>
-              <span className="text-xs text-on-surface-variant font-mono font-bold hidden sm:inline-block">Restore listings removed in error</span>
+              <span className="text-xs text-on-surface-variant font-mono font-bold hidden sm:inline-block">Restore jobs removed by mistake</span>
             </div>
 
             {dismissedJobs.length === 0 ? (
               <div className="text-center py-16 bg-surface-container-lowest border-2 border-dashed border-outline text-on-surface-variant font-headline font-bold uppercase tracking-widest">
-                No dismissed applications found.
+                No dismissed jobs.
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
@@ -672,7 +666,7 @@ export default function JobScanner({
                     <button
                       onClick={() => handleUndismissJob(dJob)}
                       className="px-4 py-2 bg-surface-container text-on-surface font-headline font-bold text-xs uppercase tracking-widest border-2 border-outline-variant hover:border-on-surface hover:text-on-surface transition-all self-stretch sm:self-auto justify-center cursor-pointer flex items-center gap-2 neo-shadow-sm"
-                      title="Restore listing back to Discovered postings"
+                      title="Restore to the board"
                     >
                       <span className="font-extrabold text-lg">↺</span> Undismiss
                     </button>

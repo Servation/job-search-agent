@@ -13,7 +13,7 @@ export default function DashboardStats({ stats }: DashboardStatsProps) {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-6" id="essential-metrics-grid">
         <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-primary hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Scanned Positions</span>
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Jobs Scanned</span>
             <div className="w-10 h-10 bg-surface-container-lowest border-2 border-outline-variant flex items-center justify-center text-on-surface-variant shrink-0">
               <Briefcase className="w-5 h-5" />
             </div>
@@ -23,7 +23,7 @@ export default function DashboardStats({ stats }: DashboardStatsProps) {
 
         <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-error hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Duplicates Prevented</span>
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Duplicates Skipped</span>
             <div className="w-10 h-10 bg-error-container border-2 border-error flex items-center justify-center text-error shrink-0">
               <History className="w-5 h-5 animate-pulse" style={{ animationDuration: '3s' }} />
             </div>
@@ -33,7 +33,7 @@ export default function DashboardStats({ stats }: DashboardStatsProps) {
 
         <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-primary-variant hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">LLM Evaluations</span>
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Jobs Scored</span>
             <div className="w-10 h-10 bg-primary/20 border-2 border-primary-variant flex items-center justify-center text-primary-variant shrink-0">
               <Sparkles className="w-5 h-5 animate-pulse" style={{ animationDuration: '3s' }} />
             </div>
@@ -43,7 +43,7 @@ export default function DashboardStats({ stats }: DashboardStatsProps) {
 
         <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-emerald-500 hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Sourced Postings</span>
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Jobs Found</span>
             <div className="w-10 h-10 bg-emerald-500/10 border-2 border-emerald-500 flex items-center justify-center text-emerald-500 shrink-0">
               <Globe className="w-5 h-5" />
             </div>

@@ -68,7 +68,7 @@ export default function ManualAddForm({
   return (
     <form onSubmit={handleAddManualSubmit} className="border-4 border-primary bg-primary-container p-6 space-y-6 animate-fade-in text-left neo-shadow-primary mb-8">
       <h3 className="text-sm font-headline font-extrabold uppercase tracking-widest text-primary flex items-center gap-2 border-b-2 border-primary pb-4">
-        <Plus className="w-5 h-5" /> Manual Job Entry
+        <Plus className="w-5 h-5" /> Add a Job
       </h3>
 
       {/* Row 1: Title + Company */}
@@ -117,7 +117,7 @@ export default function ManualAddForm({
         </div>
         <div>
           <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-primary-container mb-2">
-            Position Type
+            Job Type
           </label>
           <select
             value={form.type}
@@ -131,7 +131,7 @@ export default function ManualAddForm({
         </div>
         <div>
           <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-primary-container mb-2">
-            Match Rating 0–100 <span className="text-outline-variant ml-1">(optional)</span>
+            Match Score 0–100 <span className="text-outline-variant ml-1">(optional)</span>
           </label>
           <input
             type="number"

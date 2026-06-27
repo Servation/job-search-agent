@@ -52,10 +52,10 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
   const handleFileSelected = (file: File) => {
     setParseError(null);
     setIsParsing(true);
-    addAiLog(`ResumeParser: Selected file "${file.name}" (${file.type || "unknown mime"}).`);
+    addAiLog(`Selected "${file.name}".`);
 
     if (file.type === "application/pdf") {
-      addAiLog(`ResumeParser: Sending PDF attachment to server parser (Model: ${llmConfig.modelName})...`);
+      addAiLog(`Reading your PDF resume (using ${llmConfig.modelName})...`);
       const reader = new FileReader();
       reader.onload = async (event) => {
         const urlPart = event.target?.result as string;
@@ -72,7 +72,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
 
             if (!response.ok) {
               const errMsg = await response.text();
-              throw new Error(errMsg || "Failed parsing the PDF document on server.");
+              throw new Error(errMsg || "Could not read the PDF.");
             }
 
             const data = await response.json();
@@ -80,7 +80,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
             const extractedText = data.extractedRawText || "";
             setResumeText(extractedText);
             
-            addAiLog(`ResumeParser: PDF extraction successful (Applicant Name: "${data.parsedName || "Not Found"}"). Extracted ${data.parsedSkills?.length || 0} skills.`);
+            addAiLog(`Read your PDF (Name: "${data.parsedName || "Not found"}"). Found ${data.parsedSkills?.length || 0} skills.`);
 
             onParseComplete({
               name: data.parsedName,
@@ -104,33 +104,33 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
             setTimeout(() => setSuccessMsg(false), 4500);
           } catch (err: any) {
             console.warn("PDF Server parsing error.", err);
-            addAiLog(`ResumeParser Warning: PDF server processing failed (${err.message || "Unknown error"}). Existing profile left unchanged.`);
+            addAiLog(`Couldn't read the PDF (${err.message || "Unknown error"}). Your saved resume was kept.`);
             // IMPORTANT: do NOT overwrite the saved profile on a failed PDF parse.
             // Previously this ran the local fallback parser on a placeholder string,
             // which wiped a good resume/skills/roles when a parse merely timed out.
             // A PDF gives us no real text to fall back on, so preserve the existing
             // profile and ask the user to paste the text instead.
-            setParseError(`Could not parse the PDF automatically: ${err.message || 'Verification Error'}. Your saved profile was NOT changed. Ensure your local LLM server is online, then paste your resume text below and click "Parse Resume".`);
+            setParseError(`Could not read the PDF: ${err.message || 'Error'}. Your saved resume was not changed. Make sure your local LLM server is running, then paste your resume text below and click "Parse Resume".`);
           } finally {
             setIsParsing(false);
           }
         }
       };
       reader.onerror = () => {
-        addAiLog("ResumeParser Error: Could not read local file binary.");
-        setParseError("Failed to read the PDF file contents.");
+        addAiLog("Could not open the file.");
+        setParseError("Could not read the PDF file.");
         setIsParsing(false);
       };
       reader.readAsDataURL(file);
     } else {
       // Standard plain text file
-      addAiLog("ResumeParser: Reading plain text resume file...");
+      addAiLog("Reading your resume file...");
       const reader = new FileReader();
       reader.onload = async (event) => {
         const text = event.target?.result as string;
         if (text) {
           setResumeText(text);
-          addAiLog("ResumeParser: Sending text document to server parser...");
+          addAiLog("Sending your resume to be read...");
           try {
             const response = await fetch('/api/resume/parse', {
               method: 'POST',
@@ -143,7 +143,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
             }
 
             const data = await response.json();
-            addAiLog(`ResumeParser: Server parse successful. Extracted candidate name: "${data.parsedName || "Not Found"}".`);
+            addAiLog(`Read your resume. Name: "${data.parsedName || "Not found"}".`);
             onParseComplete({
               name: data.parsedName,
               skills: data.parsedSkills,
@@ -166,7 +166,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
             setTimeout(() => setSuccessMsg(false), 4500);
           } catch (err) {
             console.warn("Server text file parse error. Falling back to local keyword heuristics.");
-            addAiLog("ResumeParser Event: Server parser failed. Running edge keyword regex heuristics on text profile...");
+            addAiLog("Couldn't reach the server. Scanning your resume for keywords instead...");
             fallbackParser(text);
           } finally {
             setIsParsing(false);
@@ -176,8 +176,8 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
         }
       };
       reader.onerror = () => {
-        addAiLog("ResumeParser Error: Reading plain text file failed.");
-        setParseError("Failed to read the file contents.");
+        addAiLog("Could not read the file.");
+        setParseError("Could not read the file.");
         setIsParsing(false);
       };
       reader.readAsText(file);
@@ -216,14 +216,14 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
 
   const handleParse = async () => {
     if (!resumeText.trim()) {
-      setParseError("Please input or paste resume content.");
+      setParseError("Please paste your resume first.");
       return;
     }
 
     setIsParsing(true);
     setParseError(null);
     setSuccessMsg(false);
-    addAiLog("ResumeParser: Manual parse initiated by candidate. Connecting to server backend...");
+    addAiLog("Reading your resume...");
 
     try {
       // Call the express parser route
@@ -234,11 +234,11 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
       });
 
       if (!response.ok) {
-        throw new Error(await response.text() || "Failed parsing resume on server.");
+        throw new Error(await response.text() || "Could not read your resume.");
       }
 
       const data = await response.json();
-      addAiLog(`ResumeParser: Server analyzed plain text. Candidate Name parsed: "${data.parsedName || "Candidate"}", Skills count: ${data.parsedSkills?.length || 0}.`);
+      addAiLog(`Read your resume. Name: "${data.parsedName || "You"}", Skills: ${data.parsedSkills?.length || 0}.`);
       
       onParseComplete({
         name: data.parsedName,
@@ -262,7 +262,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
       setTimeout(() => setSuccessMsg(false), 4000);
     } catch (err: any) {
       console.warn("Server parsing error. Using local fallback parser.", err);
-      addAiLog("ResumeParser Warning: Server parsing failed. Executing standalone semantic text segment fallbacks...");
+      addAiLog("Couldn't reach the server. Scanning your resume for keywords instead...");
       // Fallback local key-word heuristic matching if server-side Gemini key is absent
       fallbackParser(resumeText);
     } finally {
@@ -301,7 +301,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
 
     const targetRoles = rolesSet.size > 0 ? Array.from(rolesSet).slice(0, 4) : [];
 
-    addAiLog(`ResumeParser Fallback: Extracted name "${name}". Found matched skills from vocabulary: [${foundSkills.join(", ")}].`);
+    addAiLog(`Found name "${name}". Matched skills: [${foundSkills.join(", ")}].`);
 
     onParseComplete({
       name,
@@ -336,7 +336,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
             Resume Profile
           </h2>
           <p className="text-sm text-on-surface-variant mt-3 font-body">
-            Input copy/pasted resume details to configure parsing queries for the Job Search Agent.
+            Paste your resume below. The agent uses it to find matching jobs.
           </p>
         </div>
       </div>
@@ -364,16 +364,16 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
           />
           <Upload className={`w-10 h-10 ${dragActive ? 'text-primary animate-bounce' : 'text-on-surface-variant'} mb-4`} />
           <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface">
-            Upload Document (PDF, TXT, MD)
+            Upload Your Resume (PDF, TXT, MD)
           </h4>
           <p className="text-xs text-on-surface-variant mt-2 max-w-xs leading-normal">
-            Drag & drop your document file here, or click to browse local folders.
+            Drag and drop your resume here, or click to choose a file.
           </p>
         </div>
 
         <div>
           <label className="block text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 flex items-center justify-between">
-            <span>Raw Resume Content</span>
+            <span>Your Resume</span>
           </label>
           <textarea
             value={resumeText}
@@ -387,7 +387,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
           <div className="text-sm font-headline uppercase font-bold tracking-wider">
             {profile.parsedName ? (
               <span className="flex items-center gap-2 text-primary">
-                <Check className="w-5 h-5" /> Active Profile: {profile.parsedName}
+                <Check className="w-5 h-5" /> Saved: {profile.parsedName}
               </span>
             ) : (
               <span className="text-outline-variant">Not parsed yet</span>
@@ -425,7 +425,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
 
         {successMsg && (
           <div className="p-4 bg-primary-container text-sm text-on-primary-container border-2 border-primary flex items-center gap-3 font-headline font-bold uppercase tracking-wider">
-            <Check className="w-6 h-6 text-primary" /> Customized parsing successful! Target filters configured below.
+            <Check className="w-6 h-6 text-primary" /> Resume parsed. Your details are below.
           </div>
         )}
 
@@ -434,7 +434,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
             <div className="flex items-center justify-between mb-6">
               <span className="text-lg font-headline font-bold uppercase tracking-widest text-primary flex items-center gap-2">
                 <Layers className="w-5 h-5" />
-                Parsed Scope Metrics
+                Parsed Details
               </span>
               <button
                 onClick={() => setIsEditingTags(!isEditingTags)}
@@ -446,7 +446,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
 
             <div className="space-y-6">
               <div className="p-5 bg-surface-container border-2 border-outline-variant">
-                <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block mb-3">Primary Target Roles</span>
+                <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block mb-3">Target Roles</span>
                 {isEditingTags ? (
                   <input
                     type="text"
@@ -456,7 +456,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
                       targetRoles: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
                     })}
                     className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-mono placeholder:text-outline"
-                    placeholder="Writers, React, Soft Engineer"
+                    placeholder="Software Engineer, Frontend Developer"
                   />
                 ) : (
                   <div className="flex flex-wrap gap-2">
@@ -470,7 +470,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
               </div>
 
               <div className="p-5 bg-surface-container border-2 border-outline-variant">
-                <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block mb-3">Core Technical Skills</span>
+                <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block mb-3">Skills</span>
                 {isEditingTags ? (
                   <input
                     type="text"
@@ -495,7 +495,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
 
               <div className="p-5 bg-surface-container border-2 border-outline-variant">
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block">Target Minimum Match Score</span>
+                  <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block">Minimum Match Score</span>
                   <span className="text-lg font-headline font-extrabold text-primary border-b-2 border-primary px-2">{profile.minMatchScore}%</span>
                 </div>
                 <input

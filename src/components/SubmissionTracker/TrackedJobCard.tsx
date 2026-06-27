@@ -28,7 +28,7 @@ export const statuses: { value: JobStatusType; label: string; color: string }[] 
   { value: 'review', label: 'Under Review', color: 'bg-blue-500/10 text-blue-500 border-blue-500' },
   { value: 'interviewing', label: 'Interviewing', color: 'bg-warning-container text-on-warning-container border-warning hover:opacity-90' },
   { value: 'offered', label: 'Offered', color: 'bg-emerald-500/10 text-emerald-500 border-emerald-500' },
-  { value: 'rejected', label: 'Rejected / Archived', color: 'bg-error-container text-error border-error' },
+  { value: 'rejected', label: 'Rejected', color: 'bg-error-container text-error border-error' },
 ];
 
 interface TrackedJobCardProps {
@@ -133,7 +133,7 @@ export default function TrackedJobCard({
         {/* Edit Header */}
         <div className="flex items-center justify-between border-b-2 border-primary pb-4">
           <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-primary flex items-center gap-2">
-            <Edit2 className="w-5 h-5" /> Edit Submission Details
+            <Edit2 className="w-5 h-5" /> Edit Job
           </span>
           <button
             onClick={handleCancelEdit}
@@ -159,7 +159,7 @@ export default function TrackedJobCard({
             </div>
             <div>
               <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-primary-container mb-2">
-                Company Name
+                Company
               </label>
               <input
                 type="text"
@@ -184,7 +184,7 @@ export default function TrackedJobCard({
             </div>
             <div>
               <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-primary-container mb-2">
-                Position Type
+                Job Type
               </label>
               <select
                 value={editForm.type}
@@ -290,7 +290,7 @@ export default function TrackedJobCard({
               <button
                 onClick={() => handleCopyLink(job.url || '')}
                 className="p-1.5 border-2 border-transparent hover:border-outline-variant hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer flex items-center justify-center bg-surface-container-lowest"
-                title="Copy URL to Clipboard"
+                title="Copy link"
               >
                 <Copy className="w-4 h-4" />
               </button>
@@ -307,14 +307,14 @@ export default function TrackedJobCard({
           <button
             onClick={handleStartEdit}
             className="p-2 border-2 border-transparent hover:border-outline-variant hover:bg-surface-container text-on-surface-variant hover:text-primary transition-colors cursor-pointer bg-surface-container-lowest"
-            title="Edit Job Details"
+            title="Edit job"
           >
             <Edit2 className="w-5 h-5" />
           </button>
           <button
             onClick={() => onRemoveJob(job.id)}
             className="p-2 border-2 border-transparent hover:border-error hover:bg-error-container text-on-surface-variant hover:text-error transition-colors cursor-pointer bg-surface-container-lowest"
-            title="Remove from history"
+            title="Remove job"
           >
             <Trash2 className="w-5 h-5" />
           </button>
@@ -348,9 +348,9 @@ export default function TrackedJobCard({
         {job.retryTier !== undefined && job.retryTier >= 1 && (
           <span
             className="inline-flex items-center gap-1.5 text-[10px] font-headline font-extrabold uppercase tracking-widest px-3 py-1.5 bg-warning-container border-2 border-warning text-warning cursor-help"
-            title={`This job was evaluated with reduced context (Tier ${job.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
+            title={`The match score for this job may be less accurate (Tier ${job.retryTier}) because scoring ran with limited information.`}
           >
-            ⚠️ Reduced Context
+            ⚠️ Less Accurate Score
           </span>
         )}
 
@@ -362,7 +362,7 @@ export default function TrackedJobCard({
             className="inline-flex items-center gap-1.5 text-[10px] font-headline font-extrabold uppercase tracking-widest text-primary hover:text-primary-variant bg-primary-container border-2 border-primary px-3 py-1.5 transition-colors neo-shadow-sm"
           >
             <ExternalLink className="w-4 h-4" />
-            Open Posting
+            Open Job
           </a>
         )}
       </div>
@@ -396,12 +396,12 @@ export default function TrackedJobCard({
       <div className="space-y-2 mt-4">
         <label className="text-xs uppercase font-headline font-extrabold text-on-surface flex items-center gap-2 leading-none">
           <Paperclip className="w-4 h-4 text-primary" />
-          Custom Submission Log Notes
+          Notes
         </label>
         <textarea
           value={job.notes || ''}
           onChange={(e) => onUpdateJobStatus(job.id, job.status, e.target.value)}
-          placeholder="Enter personal notes about this application (e.g. interviewer names, emails, timeline)..."
+          placeholder="Add notes about this application (e.g. interviewer names, emails, dates)..."
           className="w-full h-24 p-4 border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface-container-lowest text-sm text-on-surface resize-none placeholder:text-outline font-body"
         />
       </div>
@@ -410,7 +410,7 @@ export default function TrackedJobCard({
       <div className="flex items-center justify-between gap-4 pt-4 border-t-2 border-outline-variant">
         <span className="text-xs uppercase font-headline font-extrabold text-on-surface flex items-center gap-2 tracking-widest">
           <CheckSquare className="w-5 h-5 text-primary" />
-          Status Tracker
+          Status
         </span>
 
         <select

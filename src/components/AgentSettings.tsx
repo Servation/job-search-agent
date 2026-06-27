@@ -57,7 +57,7 @@ export default function AgentSettings({
     let targetUrl = llmConfig.endpoint.trim();
     if (!targetUrl) {
       setTestStatus('failed');
-      setTestError('Please configure an API Endpoint URL first.');
+      setTestError('Please enter an API Endpoint URL first.');
       return;
     }
     
@@ -105,15 +105,15 @@ export default function AgentSettings({
       if (responseJson && (responseJson.choices || responseJson.id)) {
         setTestStatus('success');
       } else {
-        throw new Error('Received warning response: Missing standard OpenAI fields (choices/id). Check model configuration.');
+        throw new Error('Got an unexpected reply from the model. Check your model name and settings.');
       }
     } catch (err: any) {
       console.error(err);
       setTestStatus('failed');
       if (err.name === 'AbortError') {
-        setTestError('Request timed out after 8s. Verify your LLM server is online.');
+        setTestError('Request timed out after 8s. Make sure your model is running.');
       } else {
-        setTestError(err.message || 'Unknown network connection failure.');
+        setTestError(err.message || 'Could not connect. Check your settings and try again.');
       }
     }
   };
@@ -143,17 +143,17 @@ export default function AgentSettings({
             <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
               <Cpu className="w-6 h-6" />
             </div>
-            LLM Settings
+            Model Settings
           </h2>
           <p className="text-sm text-on-surface-variant mt-3 font-body">
-            Configure the API connection details for your chosen OpenAI-compatible model endpoint (such as LM Studio, Ollama, or OpenAI).
+            Connect the AI model that scores your jobs (such as LM Studio, Ollama, or OpenAI).
           </p>
         </div>
 
         <div className="p-6 bg-surface-container border-2 border-outline-variant space-y-6 font-body" id="custom-provider-inputs">
             <div className="flex items-center gap-2 mb-2 text-sm font-headline font-bold uppercase tracking-widest text-primary">
               <Cpu className="w-5 h-5 animate-pulse" />
-              API Connection Details
+              Connection Details
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -171,7 +171,7 @@ export default function AgentSettings({
               </div>
               <div>
                 <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                  Model Name String
+                  Model Name
                 </label>
                 <input
                   type="text"
@@ -185,21 +185,21 @@ export default function AgentSettings({
 
             <div>
               <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                API Key Secret (Optional)
+                API Key (Optional)
               </label>
               <input
                 type="password"
                 value={llmConfig.apiKey}
                 onChange={(e) => onChangeLLMConfig({ ...llmConfig, apiKey: e.target.value })}
                 className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-mono placeholder:text-outline"
-                placeholder="Enter API Key if required by endpoint"
+                placeholder="Enter API key if your model needs one"
               />
             </div>
 
             <div className="p-4 bg-surface border-2 border-outline-variant">
               <div className="flex justify-between items-center mb-4">
                 <label className="text-xs font-headline font-bold uppercase tracking-widest text-on-surface">
-                  LLM Request Timeout
+                  Request Timeout
                 </label>
                 <span className="text-lg font-headline font-extrabold text-primary border-b-2 border-primary px-2">
                   {llmConfig.timeout || 30}s
@@ -217,7 +217,7 @@ export default function AgentSettings({
                 />
               </div>
               <span className="text-[10px] text-on-surface-variant block mt-3 font-mono">
-                Recommended: 30s for local models running on CPU/consumer-grade GPUs, 10s-15s for high-speed APIs.
+                How long to wait for the model to reply. Try 30s for models on your own computer, 10s-15s for fast online services.
               </span>
             </div>
 
@@ -259,14 +259,14 @@ export default function AgentSettings({
 
               {testError && (
                 <div className="p-4 bg-error-container text-sm text-on-error-container border-2 border-error leading-relaxed font-mono font-bold uppercase tracking-wider overflow-x-auto whitespace-pre-wrap">
-                  <span className="font-extrabold text-error block mb-1">Error Details:</span>
+                  <span className="font-extrabold text-error block mb-1">Error:</span>
                   {testError}
                 </div>
               )}
               
               {testStatus === 'success' && (
                 <div className="p-4 bg-primary-container text-sm text-on-primary-container border-2 border-primary font-headline font-bold uppercase tracking-wider">
-                  ✓ Successfully connected to the API endpoint.
+                  ✓ Connected to the model.
                 </div>
               )}
             </div>
@@ -282,13 +282,13 @@ export default function AgentSettings({
           <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
             <Layers className="w-6 h-6" />
           </div>
-          Position & Location Sourcing Preferences
+          Job & Location Preferences
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="font-body space-y-6 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
-              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">1. Position Types</h4>
+              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">1. Job Types</h4>
               <div className="flex flex-wrap gap-2 mb-3">
                 {(['Full-Time', 'Contract', 'Part-Time'] as JobTypeType[]).map((type) => {
                   const isChecked = profile.preferredTypes?.includes(type);
@@ -312,7 +312,7 @@ export default function AgentSettings({
             </div>
 
             <div className="pt-4 border-t-2 border-outline-variant">
-              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">3. Years of Experience</h4>
+              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">2. Years of Experience</h4>
               <div className="flex items-center gap-4">
                 <input
                   type="number"
@@ -325,17 +325,17 @@ export default function AgentSettings({
                 />
                 <span className="text-xs font-headline font-bold uppercase tracking-wider text-on-surface-variant">
                   {(profile.yearsOfExperience || 0) === 0
-                    ? 'Not set — experience level not considered'
-                    : `yrs · overqualified ok · stretch if > ${(profile.yearsOfExperience || 0) + 2} yrs`}
+                    ? 'Not set (experience is ignored)'
+                    : `yrs · more experience is fine · a stretch if over ${(profile.yearsOfExperience || 0) + 2} yrs`}
                 </span>
               </div>
               <p className="text-[10px] text-outline mt-3 leading-normal font-mono">
-                Set your total professional experience. Being overqualified is always acceptable. Jobs requiring up to +2 years more than yours are also scored normally.
+                Enter your total years of work experience. Having more than a job asks for is always fine. Jobs that want up to 2 years more than you have are still scored normally.
               </p>
             </div>
 
             <div className="pt-4 border-t-2 border-outline-variant">
-              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">2. Work Location</h4>
+              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">3. Work Location</h4>
               <div className="flex flex-wrap gap-4">
                 <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-headline font-bold uppercase tracking-widest text-on-surface">
                   <input
@@ -373,13 +373,13 @@ export default function AgentSettings({
           <div className="font-body space-y-4 p-6 bg-primary-container border-2 border-primary neo-shadow-primary relative overflow-hidden">
             <div className="flex items-center gap-2 mb-2 text-sm font-headline font-bold uppercase tracking-widest text-primary relative z-10 border-b-2 border-primary pb-2">
               <MapPin className="w-5 h-5 text-primary" />
-              Sourcing Search Location
+              Where to Search
             </div>
 
             <div className="space-y-6 relative z-10">
               <div>
                 <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                  Geographic Sourcing Boundary (Required)
+                  Location (Required)
                 </label>
                 <input
                   type="text"
@@ -389,13 +389,13 @@ export default function AgentSettings({
                   placeholder="e.g. California, United States, Germany, Austin TX"
                 />
                 <p className="text-[10px] text-on-surface-variant mt-2 leading-normal font-mono">
-                  Enter any valid location scope such as an entire state, country, or city.
+                  Enter a city, state, or country.
                 </p>
               </div>
 
               <div>
                 <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                  Commute / Distance Radius (Optional)
+                  Distance (Optional)
                 </label>
                 <input
                   type="text"
@@ -405,7 +405,7 @@ export default function AgentSettings({
                   placeholder="e.g. 25 miles, 50 km"
                 />
                 <p className="text-[10px] text-on-surface-variant mt-2 leading-normal font-mono">
-                  Specify a maximum radius to search, or leave empty to restrict results strictly within the geographic boundary.
+                  How far from your location to look. Leave empty to search only within the location above.
                 </p>
               </div>
             </div>
@@ -419,14 +419,14 @@ export default function AgentSettings({
       <div className="pt-8 border-t-2 border-outline-variant space-y-6" id="agent-automation-settings">
         <h3 className="text-xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-2">
           <Clock className="w-5 h-5 text-primary" />
-          Background Automation & Scheduling
+          Automatic Scans
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
               <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                Auto-Scan Sourcing Interval
+                Search for New Jobs
               </label>
               <select
                 value={profile.autoScanInterval || 0}
@@ -441,7 +441,7 @@ export default function AgentSettings({
                 <option value={360}>Every 6 Hours</option>
               </select>
               <p className="text-[10px] text-outline mt-2 leading-normal font-mono">
-                Automatically triggers a live sourcing scan to pull new jobs from ATS endpoints.
+                How often to check job boards for new postings.
               </p>
             </div>
           </div>
@@ -449,7 +449,7 @@ export default function AgentSettings({
           <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
               <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                Auto-Evaluation & Discovery Interval
+                Score Jobs & Find Companies
               </label>
               <select
                 value={profile.refinerIntervalMinutes ?? 5}
@@ -463,7 +463,7 @@ export default function AgentSettings({
                 <option value={60}>Every 1 Hour</option>
               </select>
               <p className="text-[10px] text-outline mt-2 leading-normal font-mono">
-                Automatically evaluates sourced jobs using your LLM and dynamically discovers new company boards.
+                How often the agent scores found jobs and looks for new company job boards.
               </p>
             </div>
           </div>
@@ -473,7 +473,7 @@ export default function AgentSettings({
       <div className="pt-8 border-t-2 border-outline-variant space-y-6" id="agent-scheduler-settings">
         <h3 className="text-xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-2">
           <Layers className="w-5 h-5 text-primary" />
-          Discovered Memory Capacity & Duplicate Control
+          Saved Jobs & Duplicates
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -481,7 +481,7 @@ export default function AgentSettings({
           <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
               <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
-                Matched Jobs Memory Capacity
+                Max Saved Jobs
               </label>
               <input
                 type="number"
@@ -492,7 +492,7 @@ export default function AgentSettings({
                 className="w-full px-4 py-3 text-lg font-headline font-extrabold bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary"
               />
               <p className="text-[10px] text-outline mt-2 leading-normal font-mono">
-                The maximum number of fully evaluated (matched) job listings to keep in memory.
+                The most scored, matching jobs to keep at once.
               </p>
             </div>
           </div>
@@ -508,14 +508,14 @@ export default function AgentSettings({
                   className="w-5 h-5 border-2 border-outline-variant bg-surface-container-lowest accent-primary cursor-pointer"
                 />
                 <label htmlFor="limit-company-matches" className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface cursor-pointer select-none">
-                  Limit maximum matches per company
+                  Limit jobs per company
                 </label>
               </div>
 
               {profile.limitCompanyMatches && (
                 <div className="flex items-center gap-3 animate-fade-in bg-surface border-2 border-outline-variant p-2 px-4">
                   <label className="text-xs font-headline font-bold uppercase tracking-widest text-on-surface whitespace-nowrap">
-                    Max positions per company:
+                    Max jobs per company:
                   </label>
                   <input
                     type="number"
@@ -529,7 +529,7 @@ export default function AgentSettings({
               )}
             </div>
             <p className="text-[10px] text-outline mt-3 leading-normal font-mono">
-              When checked, prevents any single company from flooding your discovered list. If a company already has the set number of matching jobs, additional jobs from that company are ignored.
+              Keeps one company from filling up your list. Once a company hits the limit, extra jobs from it are skipped.
             </p>
           </div>
         </div>
@@ -538,7 +538,7 @@ export default function AgentSettings({
       <div className="pt-8 border-t-2 border-outline-variant space-y-6" id="agent-blocklist-settings">
         <h3 className="text-xl font-headline font-bold text-error flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-2">
           <ShieldAlert className="w-5 h-5 text-error" />
-          Blocked Companies Blocklist
+          Blocked Companies
         </h3>
         
         <div className="font-body space-y-6 p-6 bg-error-container border-2 border-error">
@@ -582,7 +582,7 @@ export default function AgentSettings({
               ))}
             </div>
           ) : (
-            <p className="text-xs font-mono text-error/80 uppercase tracking-widest">No companies blocked yet. You can block companies from the discovered postings board or add them manually above.</p>
+            <p className="text-xs font-mono text-error/80 uppercase tracking-widest">No companies blocked yet. Add one above, or block them from the found jobs list.</p>
           )}
         </div>
       </div>

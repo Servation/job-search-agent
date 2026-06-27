@@ -87,16 +87,16 @@ export default function SubmissionTracker({
             <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
               <FileCheck className="w-6 h-6" />
             </div>
-            Submission Tracker
+            Application Tracker
           </h2>
           <p className="text-sm font-headline font-bold text-on-surface-variant mt-2 uppercase tracking-widest">
-            Track and update submission pipelines. Prevent applying to identical openings.
+            Track and update your job applications. Avoid applying to the same job twice.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
           <span className="text-sm font-headline font-extrabold uppercase tracking-widest px-4 py-2 bg-surface-container border-2 border-outline-variant text-on-surface text-center">
-            Pipeline Volume: {jobs.length} Active
+            {jobs.length} Tracked
           </span>
           <button
             onClick={() => setShowAddForm(v => !v)}
@@ -124,7 +124,7 @@ export default function SubmissionTracker({
             type="text"
             value={filterSearch}
             onChange={(e) => setFilterSearch(e.target.value)}
-            placeholder="Search saved positions by title or company name..."
+            placeholder="Search jobs by title or company..."
             className="w-full pl-12 pr-4 py-3 text-sm border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface text-on-surface placeholder:text-outline font-headline font-bold uppercase tracking-wider"
           />
         </div>
@@ -134,9 +134,9 @@ export default function SubmissionTracker({
           onChange={(e) => setFilterStatus(e.target.value)}
           className="px-4 py-3 text-sm border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface text-on-surface font-headline font-extrabold uppercase tracking-widest shrink-0 cursor-pointer"
         >
-          <option value="all" className="font-bold">Display All Statuses</option>
+          <option value="all" className="font-bold">All Statuses</option>
           {statuses.map((s) => (
-            <option key={s.value} value={s.value} className="font-bold">Filter: {s.label}</option>
+            <option key={s.value} value={s.value} className="font-bold">{s.label}</option>
           ))}
         </select>
 
@@ -145,19 +145,19 @@ export default function SubmissionTracker({
           onChange={(e) => setSortBy(e.target.value as any)}
           className="px-4 py-3 text-sm border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface text-on-surface font-headline font-extrabold uppercase tracking-widest shrink-0 cursor-pointer"
         >
-          <option value="company" className="font-bold">Sort: Company Name</option>
-          <option value="title" className="font-bold">Sort: Job Title</option>
-          <option value="score" className="font-bold">Sort: Match Score</option>
-          <option value="date" className="font-bold">Sort: Date Applied</option>
-          <option value="status" className="font-bold">Sort: Stage Progress</option>
+          <option value="company" className="font-bold">Sort by Company</option>
+          <option value="title" className="font-bold">Sort by Job Title</option>
+          <option value="score" className="font-bold">Sort by Match Score</option>
+          <option value="date" className="font-bold">Sort by Date Applied</option>
+          <option value="status" className="font-bold">Sort by Status</option>
         </select>
       </div>
 
       {sortedJobs.length === 0 ? (
         <div className="py-16 text-center bg-surface-container-lowest border-2 border-dashed border-outline-variant">
           <AlertCircle className="w-12 h-12 text-outline mx-auto mb-4" />
-          <p className="text-base font-headline font-extrabold text-on-surface uppercase tracking-widest mb-2">No saved submissions tracked with current parameters.</p>
-          <p className="text-sm font-headline font-bold text-on-surface-variant uppercase tracking-wider">Trigger a Daily Scan and click "Save &amp; Log Submission" to log items here, or use "Add Manually" above.</p>
+          <p className="text-base font-headline font-extrabold text-on-surface uppercase tracking-widest mb-2">No jobs match your filters.</p>
+          <p className="text-sm font-headline font-bold text-on-surface-variant uppercase tracking-wider">Run a scan and click "Save" to add jobs here, or use "Add Manually" above.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="submission-pipeline-cards">

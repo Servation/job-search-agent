@@ -68,7 +68,7 @@ export default function ManualAddModal({
           <X className="w-6 h-6" />
         </button>
         <h3 className="text-xl font-headline font-bold text-on-surface mb-6 flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-4">
-          <FileSpreadsheet className="w-6 h-6 text-primary" /> Log Position into Tracker
+          <FileSpreadsheet className="w-6 h-6 text-primary" /> Add a Job
         </h3>
         <form onSubmit={handleManualAdd} className="space-y-6 text-left font-body">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -108,7 +108,7 @@ export default function ManualAddModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Compensation</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Salary</label>
               <input
                 type="text"
                 value={manualForm.salary}
@@ -121,7 +121,7 @@ export default function ManualAddModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
-              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Contract Schema</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Job Type</label>
               <select
                 value={manualForm.type}
                 onChange={(e) => setManualForm({ ...manualForm, type: e.target.value as any })}
@@ -141,7 +141,7 @@ export default function ManualAddModal({
                 className="w-5 h-5 accent-primary border-2 border-outline-variant cursor-pointer"
               />
               <label htmlFor="manual-w2" className="text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface cursor-pointer select-none">
-                W2 structure setup
+                W2 position
               </label>
             </div>
           </div>
@@ -158,12 +158,12 @@ export default function ManualAddModal({
           </div>
 
           <div>
-            <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Short Description</label>
+            <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Description</label>
             <textarea
               value={manualForm.description}
               onChange={(e) => setManualForm({ ...manualForm, description: e.target.value })}
               className="w-full h-24 px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary resize-none placeholder:text-outline font-body"
-              placeholder="Core tech required..."
+              placeholder="Key skills or notes..."
             />
           </div>
 
@@ -171,7 +171,7 @@ export default function ManualAddModal({
             type="submit"
             className="w-full py-4 bg-primary text-on-primary font-headline font-extrabold uppercase tracking-widest text-sm border-2 border-black hover:opacity-90 active:scale-[0.98] transition-all neo-shadow cursor-pointer mt-4"
           >
-            Log to Pipeline
+            Add Job
           </button>
         </form>
       </div>

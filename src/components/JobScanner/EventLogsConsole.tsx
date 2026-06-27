@@ -8,16 +8,12 @@ import React, { useEffect, useRef } from 'react';
 interface EventLogsConsoleProps {
   scanStatus: 'idle' | 'running';
   aiLogs: string[];
-  ralphMode: boolean;
-  setRalphMode: (mode: boolean) => void;
   clearAiLogs: () => void;
 }
 
 export default function EventLogsConsole({
   scanStatus,
   aiLogs,
-  ralphMode,
-  setRalphMode,
   clearAiLogs
 }: EventLogsConsoleProps) {
   const logsContainerRef = useRef<HTMLDivElement>(null);
@@ -39,17 +35,6 @@ export default function EventLogsConsole({
         </div>
         <div className="flex items-center gap-3 animate-fade-in font-body">
           <button
-            onClick={() => setRalphMode(!ralphMode)}
-            className={`text-[10px] font-headline font-extrabold uppercase tracking-widest px-4 py-2 border-2 transition-all cursor-pointer flex items-center gap-2 neo-shadow-sm ${
-              ralphMode
-                ? 'bg-warning-container text-on-warning-container border-warning hover:opacity-90'
-                : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:text-on-surface hover:border-outline'
-            }`}
-            title="Toggle Ralph Wiggum funny quote commentary event logs"
-          >
-            🍌 Ralph Mode: {ralphMode ? 'ON' : 'OFF'}
-          </button>
-          <button
             onClick={clearAiLogs}
             className="text-[10px] font-headline font-extrabold uppercase tracking-widest px-4 py-2 border-2 border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:text-error hover:border-error hover:bg-error-container transition-all cursor-pointer neo-shadow-sm"
             title="Clear all event logs from history"
@@ -63,7 +48,7 @@ export default function EventLogsConsole({
         className="font-mono text-xs text-on-surface space-y-2 max-h-48 overflow-y-auto leading-relaxed pr-3 flex flex-col"
       >
         {aiLogs.length === 0 ? (
-          <div className="text-outline italic py-2 font-headline uppercase tracking-widest">No events logged yet. Try parsing or scanning to generate log streams.</div>
+          <div className="text-outline italic py-2 font-headline uppercase tracking-widest">No activity yet. Parse a resume or run a scan.</div>
         ) : (
           [...aiLogs].reverse().map((log, idx) => {
             const hasColor = log.includes("Error") || log.includes("failed");

@@ -257,7 +257,7 @@ export default function App() {
       try { return JSON.parse(cached); } catch (e) { /* ignore */ }
     }
     return [
-      `[${new Date().toLocaleTimeString()}] System: Search Agent Core Initialized. Awaiting resume input...`
+      `[${new Date().toLocaleTimeString()}] Started. Add your resume to begin.`
     ];
   });
 
@@ -266,58 +266,18 @@ export default function App() {
   });
 
   const [isAiRunning, setIsAiRunning] = useState(false);
-  const [ralphMode, setRalphMode] = useState<boolean>(() => {
-    return localStorage.getItem('job_agent_ralph_mode') === 'true';
-  });
-
-  useEffect(() => {
-    localStorage.setItem('job_agent_ralph_mode', String(ralphMode));
-  }, [ralphMode]);
-
-  const RALPH_QUOTES = [
-    "I'm helping!",
-    "I'm a computer!",
-    "Look Daddy, I'm a programmer!",
-    "My cat's breath smells like cat food.",
-    "I runned around the block!",
-    "I found a spoon!",
-    "Hi, principal Skinner! I'm scanning!",
-    "I'm in danger!",
-    "This job is too far, like the moon!",
-    "Me fail English? That's unpossible!",
-    "That's where I saw the leprechaun. He tells me to burn things.",
-    "Oh boy, a skip! I'm helping by doing nothing!",
-    "I bent my wookie.",
-    "And I'm a gold star!",
-    "Oh boy, sleep! That's where I'm a viking!",
-    "My nose is bleeding from the thinking.",
-    "Yay! I'm winning!",
-    "The doctor said I wouldn't have so many nosebleeds if I kept my finger out of there.",
-    "It tastes like burning!",
-    "I'm a unitard!",
-    "Super Nintendo Chalmers!",
-    "I did it! I'm a helper!",
-    "And the doctor said my sugar level is too high!",
-    "Everyone is hugging!"
-  ];
 
   const addAiLog = (msg: string) => {
     const timeStr = new Date().toLocaleTimeString();
-    let finalMsg = msg;
-    if (ralphMode && !msg.trim().startsWith('[Ralph:')) {
-      const randomQuote = RALPH_QUOTES[Math.floor(Math.random() * RALPH_QUOTES.length)];
-      finalMsg = `[Ralph: "${randomQuote}"] ${msg}`;
-    }
-
     setAiLogs((prev) => {
-      const updated = [`[${timeStr}] ${finalMsg}`, ...prev].slice(0, 150);
+      const updated = [`[${timeStr}] ${msg}`, ...prev].slice(0, 150);
       localStorage.setItem('job_agent_ai_logs', JSON.stringify(updated));
       return updated;
     });
   };
 
   const clearAiLogs = () => {
-    const initialLog = `[${new Date().toLocaleTimeString()}] System: Logs cleared by candidate.`;
+    const initialLog = `[${new Date().toLocaleTimeString()}] Logs cleared.`;
     setAiLogs([initialLog]);
     localStorage.setItem('job_agent_ai_logs', JSON.stringify([initialLog]));
   };
@@ -558,7 +518,7 @@ export default function App() {
       (nj) => !savedJobs.some((pj) => pj.title.toLowerCase() === nj.title.toLowerCase() && pj.company.toLowerCase() === nj.company.toLowerCase())
     );
     filtered.forEach((nj) => {
-      addAiLog(`User: Saved job "${nj.title}" at ${nj.company} to tracking board.`);
+      addAiLog(`Saved "${nj.title}" at ${nj.company}.`);
     });
     performJobAction('save', { jobs: newJobs });
   };
@@ -570,7 +530,7 @@ export default function App() {
         !savedJobs.some((sj) => sj.title.toLowerCase() === nj.title.toLowerCase() && sj.company.toLowerCase() === nj.company.toLowerCase())
     );
     filtered.forEach((nj) => {
-      addAiLog(`User: Added job "${nj.title}" at ${nj.company} to watchlist.`);
+      addAiLog(`Added "${nj.title}" at ${nj.company} to watchlist.`);
     });
     performJobAction('watchlist', { jobs: newJobs });
   };
@@ -578,7 +538,7 @@ export default function App() {
   const handleRemoveFromWatchlist = (id: string) => {
     const job = watchlist.find((j) => j.id === id);
     if (job) {
-      addAiLog(`User: Removed job "${job.title}" at ${job.company} from watchlist (added to dismissed blocklist).`);
+      addAiLog(`Removed "${job.title}" at ${job.company} from watchlist.`);
     }
     performJobAction('remove_watchlist', { id });
   };
@@ -586,7 +546,7 @@ export default function App() {
   const handleUpdateJobStatus = (id: string, status: 'discovered' | 'applied' | 'review' | 'interviewing' | 'offered' | 'rejected', notes?: string) => {
     const job = savedJobs.find((j) => j.id === id);
     if (job) {
-      addAiLog(`User: Updated job "${job.title}" at ${job.company} status to "${status}".`);
+      addAiLog(`Updated "${job.title}" at ${job.company} to "${status}".`);
     }
     performJobAction('update_status', { id, status, notes });
   };
@@ -594,7 +554,7 @@ export default function App() {
   const handleRemoveJob = (id: string) => {
     const job = savedJobs.find((j) => j.id === id);
     if (job) {
-      addAiLog(`User: Removed job "${job.title}" at ${job.company} from board (added to dismissed blocklist).`);
+      addAiLog(`Removed "${job.title}" at ${job.company}.`);
     }
     performJobAction('remove_saved', { id });
   };
@@ -602,13 +562,13 @@ export default function App() {
   const handleUpdateJobDetails = (id: string, updatedFields: Partial<Job>) => {
     const job = savedJobs.find((j) => j.id === id);
     if (job) {
-      addAiLog(`User: Updated details for job "${job.title}" at ${job.company}.`);
+      addAiLog(`Updated "${job.title}" at ${job.company}.`);
     }
     performJobAction('update_details', { id, updatedFields });
   };
 
   const handleParseComplete = (parsed: { name?: string; skills?: string[]; roles?: string[]; location?: string }) => {
-    addAiLog(`ResumeParser: Resume parsing complete. Target roles updated: [${(parsed.roles || []).join(', ')}]. Navigating to scanner...`);
+    addAiLog(`Resume parsed. Roles: [${(parsed.roles || []).join(', ')}].`);
     setActiveTab('scanner'); // Navigate to scanner automatically once parsing succeeds!
   };
 
@@ -620,11 +580,11 @@ export default function App() {
           <div className="w-10 h-10 bg-primary border-2 border-black flex items-center justify-center neo-shadow-primary text-on-primary">
             <Briefcase className="w-5 h-5" />
           </div>
-          <h1 className="font-headline uppercase tracking-widest text-xl font-bold text-primary">AI JOB SYNC</h1>
+          <h1 className="font-headline uppercase tracking-widest text-xl font-bold text-primary">Job Search Agent</h1>
         </div>
         <div className="flex items-center gap-4">
           <div className="hidden md:flex flex-col items-end">
-            <span className="text-[10px] font-label uppercase text-on-surface-variant leading-none tracking-widest">Scanning Engine Active</span>
+            <span className="text-[10px] font-label uppercase text-on-surface-variant leading-none tracking-widest">Agent active</span>
             <span className="text-[10px] font-label uppercase text-primary font-bold tracking-widest">Model: {llmConfig.modelName}</span>
           </div>
           <Zap className="text-primary w-5 h-5 animate-pulse" />
@@ -639,14 +599,14 @@ export default function App() {
           <section className="border-2 border-primary bg-primary-container p-5 relative overflow-hidden neo-shadow-primary">
             <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
               <div>
-                <h2 className="font-headline font-bold text-xl uppercase leading-tight text-primary">Zero-Config AI Matching Required</h2>
-                <p className="text-sm mt-2 text-on-surface-variant font-body max-w-2xl">Connect your professional profile to initialize the autonomous discovery agent.</p>
+                <h2 className="font-headline font-bold text-xl uppercase leading-tight text-primary">Add your resume to get started</h2>
+                <p className="text-sm mt-2 text-on-surface-variant font-body max-w-2xl">Add your resume so the agent can find jobs that match you.</p>
               </div>
               <button
                 onClick={() => setActiveTab('profile')}
                 className="w-full sm:w-auto bg-primary text-on-primary py-3 px-8 font-headline font-extrabold uppercase tracking-wider hover:opacity-90 active:scale-[0.98] transition-all border-2 border-black flex-shrink-0"
               >
-                Parse Resume Now
+                Parse Resume
               </button>
             </div>
             <div className="absolute -right-4 -top-4 opacity-10">
@@ -663,15 +623,15 @@ export default function App() {
           <section className="border-2 border-primary bg-primary-container p-5 relative overflow-hidden neo-shadow-primary">
             <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
               <div>
-                <h2 className="font-headline font-bold text-xl uppercase leading-tight text-primary">Targeting Preferences Modified</h2>
-                <p className="text-sm mt-2 text-on-surface-variant font-body">Your targeting positions, location boundaries, minimum match score, or resume profile have changed. Would you like to run a matching scan now?</p>
+                <h2 className="font-headline font-bold text-xl uppercase leading-tight text-primary">Search settings changed</h2>
+                <p className="text-sm mt-2 text-on-surface-variant font-body">Your settings or resume changed. Run a new scan?</p>
               </div>
               <button
                 onClick={handleLaunchScanFromPrompt}
                 className="w-full sm:w-auto bg-primary text-on-primary py-3 px-8 font-headline font-extrabold uppercase tracking-wider hover:opacity-90 active:scale-[0.98] transition-all border-2 border-black flex items-center justify-center gap-2 flex-shrink-0"
               >
                 <Sparkles className="w-5 h-5" />
-                Launch Scan Now
+                Run Scan
               </button>
             </div>
           </section>
@@ -795,8 +755,6 @@ export default function App() {
               onScanTriggered={() => setShouldTriggerScan(false)}
               onScanStarted={handleScanStarted}
               currentlyRefiningJobId={currentlyRefiningJobId}
-              ralphMode={ralphMode}
-              setRalphMode={setRalphMode}
             />
           )}
 

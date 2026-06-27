@@ -101,7 +101,7 @@ export default function DiscoveredJobCard({
           {/* Duplicate banner trigger */}
           {job.isDuplicate && (
             <span className="inline-flex items-center gap-2 px-3 py-1.5 bg-warning-container text-on-warning-container border-2 border-warning text-[10px] font-headline font-extrabold uppercase tracking-widest">
-              <AlertTriangle className="w-4 h-4" /> Already Applied / Saved (Duplicate Prevented)
+              <AlertTriangle className="w-4 h-4" /> Already Applied or Saved (Duplicate)
             </span>
           )}
 
@@ -112,7 +112,7 @@ export default function DiscoveredJobCard({
                 <button
                   onClick={(e) => { e.stopPropagation(); onSaveToWatchlist(job, customNote); }}
                   className="p-2 bg-surface-container-lowest border-2 border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary hover:bg-primary-container transition-all cursor-pointer flex items-center justify-center shrink-0 neo-shadow-sm"
-                  title="Save to Watchlist"
+                  title="Save for later"
                 >
                   <Bookmark className="w-4 h-4" />
                 </button>
@@ -129,11 +129,11 @@ export default function DiscoveredJobCard({
           {/* Badge Row with stable layout */}
           <div className="flex flex-wrap items-center gap-3 pt-1">
             {job.isUrlVerified ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border-2 border-emerald-500 text-emerald-500 text-[10px] font-headline font-extrabold uppercase tracking-widest shrink-0" title="This link has been validated as an active direct application page.">
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border-2 border-emerald-500 text-emerald-500 text-[10px] font-headline font-extrabold uppercase tracking-widest shrink-0" title="We checked this link and it goes to a working application page.">
                 <Check className="w-4 h-4 text-emerald-500" /> Link Verified
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-warning-container/20 border-2 border-warning text-warning text-[10px] font-headline font-extrabold uppercase tracking-widest shrink-0" title="This link was not automatically validated as a direct application page. Exercise caution.">
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-warning-container/20 border-2 border-warning text-warning text-[10px] font-headline font-extrabold uppercase tracking-widest shrink-0" title="We could not confirm this link goes to a working application page. Check it before applying.">
                 <AlertTriangle className="w-4 h-4 text-warning" /> Link Unverified
               </span>
             )}
@@ -141,16 +141,16 @@ export default function DiscoveredJobCard({
             {/* Stable-width container for Background Refiner Status to prevent badge layout shifts */}
             <div className="inline-flex shrink-0 min-w-[145px]">
               {job.id === currentlyRefiningJobId ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 border-2 border-blue-500 text-blue-500 text-[10px] font-headline font-extrabold uppercase tracking-widest w-full justify-center animate-pulse" title="This job is currently being fetched and evaluated by the background Refiner.">
-                  <Loader2 className="w-3 h-3 animate-spin text-blue-500" /> Enriching Details...
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-500/10 border-2 border-blue-500 text-blue-500 text-[10px] font-headline font-extrabold uppercase tracking-widest w-full justify-center animate-pulse" title="We are loading the full details for this job.">
+                  <Loader2 className="w-3 h-3 animate-spin text-blue-500" /> Loading Details...
                 </span>
               ) : !job.isFullDescriptionFetched ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-surface-container border-2 border-outline-variant text-on-surface-variant text-[10px] font-headline font-extrabold uppercase tracking-widest w-full justify-center" title="Awaiting full details extraction by the background refiner cycle.">
-                  ⏳ Queue: Awaiting Details
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-surface-container border-2 border-outline-variant text-on-surface-variant text-[10px] font-headline font-extrabold uppercase tracking-widest w-full justify-center" title="Waiting to load the full details for this job.">
+                  ⏳ Waiting for Details
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border-2 border-emerald-500 text-emerald-500 text-[10px] font-headline font-extrabold uppercase tracking-widest w-full justify-center" title="Full job description and salary details have been successfully retrieved and evaluated.">
-                  ✓ Details Enriched
+                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border-2 border-emerald-500 text-emerald-500 text-[10px] font-headline font-extrabold uppercase tracking-widest w-full justify-center" title="We loaded the full job description and salary details.">
+                  ✓ Details Loaded
                 </span>
               )}
             </div>
@@ -169,7 +169,7 @@ export default function DiscoveredJobCard({
               {job.salary && job.salary.toLowerCase() !== 'not specified' ? (
                 <span className="text-on-surface font-extrabold">{job.salary}</span>
               ) : (job.id === currentlyRefiningJobId || !job.isFullDescriptionFetched) ? (
-                <span className="text-outline italic text-[11px] animate-pulse">Checking compensation...</span>
+                <span className="text-outline italic text-[11px] animate-pulse">Checking salary...</span>
               ) : (
                 <span className="text-outline italic text-[11px]">Not specified</span>
               )}
@@ -188,9 +188,9 @@ export default function DiscoveredJobCard({
             {job.retryTier !== undefined && job.retryTier >= 1 && (
               <span
                 className="px-2 py-1 bg-warning-container border-2 border-warning text-warning text-[10px] font-extrabold flex items-center gap-1.5 cursor-help shrink-0"
-                title={`This job was evaluated with reduced context (Tier ${job.retryTier}) due to local LLM processing timeout. Match score may be less precise.`}
+                title={`Scored with less context because the local model was slow (Tier ${job.retryTier}). Score may be less precise.`}
               >
-                <span>⚠️</span> Reduced Context
+                <span>⚠️</span> Less Accurate Score
               </span>
             )}
           </div>
@@ -208,14 +208,14 @@ export default function DiscoveredJobCard({
                   {job.url}
                 </a>
                 <div className="absolute left-0 bottom-full mb-2 opacity-0 translate-y-1 scale-95 pointer-events-none group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100 group-hover:pointer-events-auto transition-all duration-200 w-max max-w-[280px] sm:max-w-[380px] bg-surface border-2 border-primary text-on-surface p-3 text-[10px] sm:text-xs z-50 font-mono shadow-2xl break-all">
-                  <div className="font-bold text-primary uppercase tracking-widest mb-1 border-b-2 border-primary pb-1">Full URL:</div>
+                  <div className="font-bold text-primary uppercase tracking-widest mb-1 border-b-2 border-primary pb-1">Full link:</div>
                   {job.url}
                 </div>
               </div>
               <button
                 onClick={(e) => handleCopyLink(e, job.url)}
                 className="p-1.5 border-2 border-transparent hover:border-outline-variant hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer flex items-center justify-center bg-surface-container-lowest"
-                title="Copy URL to Clipboard"
+                title="Copy link"
               >
                 <Copy className="w-4 h-4" />
               </button>
@@ -239,7 +239,7 @@ export default function DiscoveredJobCard({
                 <div className="h-4 w-[78%] bg-surface-container rounded-none animate-pulse" />
               </div>
             ) : (
-              <p className="text-xs text-outline italic font-mono uppercase tracking-widest">No description details available</p>
+              <p className="text-xs text-outline italic font-mono uppercase tracking-widest">No description available</p>
             )}
           </div>
 
@@ -260,17 +260,17 @@ export default function DiscoveredJobCard({
                 <div className="h-7 w-14 bg-surface-container border-2 border-outline-variant" />
               </div>
             ) : (
-              <span className="text-[10px] text-outline italic font-mono uppercase tracking-widest">No skills specified</span>
+              <span className="text-[10px] text-outline italic font-mono uppercase tracking-widest">No skills listed</span>
             )}
           </div>
         </div>
 
         <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-3 shrink-0 text-right">
-          <span className="text-[10px] text-on-surface-variant font-bold font-mono uppercase tracking-widest" title="Original posting date">
+          <span className="text-[10px] text-on-surface-variant font-bold font-mono uppercase tracking-widest" title="When the job was posted">
             Posted: {formatTimestamp(job.postedAt)}
           </span>
           {job.scannedAt && (
-            <span className="text-[10px] text-primary font-bold font-mono uppercase tracking-widest" title="Time when this agent discovered the job">
+            <span className="text-[10px] text-primary font-bold font-mono uppercase tracking-widest" title="When this job was found">
               Found: {new Date(job.scannedAt).toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })}
             </span>
           )}
@@ -280,7 +280,7 @@ export default function DiscoveredJobCard({
                 onClick={(e) => { e.stopPropagation(); onReevaluateJob(job); }}
                 disabled={job.id === isReevaluatingId}
                 className="p-2 border-2 border-transparent hover:border-primary hover:bg-primary-container text-on-surface-variant hover:text-primary transition-colors mt-2 cursor-pointer bg-surface-container-lowest disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Force LLM Re-evaluation"
+                title="Score this job again"
               >
                 <RefreshCw className={`w-5 h-5 ${job.id === isReevaluatingId ? 'animate-spin text-primary' : ''}`} />
               </button>
@@ -288,14 +288,14 @@ export default function DiscoveredJobCard({
             <button
               onClick={(e) => { e.stopPropagation(); onBlockCompany(job.company); }}
               className="p-2 border-2 border-transparent hover:border-error hover:bg-error-container text-on-surface-variant hover:text-error transition-colors mt-2 cursor-pointer bg-surface-container-lowest"
-              title={`Block all jobs from ${job.company}`}
+              title={`Hide all jobs from ${job.company}`}
             >
               <Ban className="w-5 h-5" />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); onDismissJob(job.id); }}
               className="p-2 border-2 border-transparent hover:border-error hover:bg-error-container text-on-surface-variant hover:text-error transition-colors mt-2 cursor-pointer bg-surface-container-lowest"
-              title="Dismiss Job Listing"
+              title="Dismiss this job"
             >
               <Trash2 className="w-5 h-5" />
             </button>
@@ -305,7 +305,7 @@ export default function DiscoveredJobCard({
               onClick={(e) => { e.stopPropagation(); onSaveToTracker(job, customNote); }}
               className="mt-2 px-4 py-2 bg-primary hover:bg-primary-variant text-on-primary font-headline font-extrabold uppercase tracking-widest text-[10px] border-2 border-black transition-all neo-shadow flex items-center gap-2 cursor-pointer justify-center"
             >
-              <FileCheck className="w-4 h-4" /> Log Applied
+              <FileCheck className="w-4 h-4" /> Mark as Applied
             </button>
           )}
         </div>
@@ -317,7 +317,7 @@ export default function DiscoveredJobCard({
           {job.description && (
             <div className="p-5 bg-surface-container-lowest border-2 border-outline-variant space-y-3">
               <span className="text-xs uppercase font-headline font-extrabold text-primary flex items-center gap-2 tracking-widest border-b-2 border-outline-variant pb-2">
-                <Briefcase className="w-4 h-4 text-primary" /> Full Position Description
+                <Briefcase className="w-4 h-4 text-primary" /> Full Job Description
               </span>
               <p className="text-sm text-on-surface leading-relaxed font-body whitespace-pre-wrap">{job.description}</p>
             </div>
@@ -326,7 +326,7 @@ export default function DiscoveredJobCard({
           {job.matchReason && (
             <div className="p-5 bg-primary-container border-2 border-primary space-y-3 neo-shadow-primary">
               <span className="text-xs uppercase font-headline font-extrabold text-primary flex items-center gap-2 tracking-widest border-b-2 border-primary pb-2">
-                <Sparkles className="w-4 h-4 text-primary" /> Grounded Agent Score Matching Reason
+                <Sparkles className="w-4 h-4 text-primary" /> Why This Job Matches
               </span>
               <p className="text-sm text-on-primary-container leading-relaxed font-body font-bold">{job.matchReason}</p>
             </div>
@@ -336,14 +336,14 @@ export default function DiscoveredJobCard({
             <div className="pt-4 border-t-2 border-outline-variant space-y-2">
               <label className="text-xs uppercase font-headline font-extrabold text-on-surface flex items-center gap-2 tracking-widest leading-none">
                 <Paperclip className="w-4 h-4 text-primary" />
-                Custom Discovery Notes
+                Your Notes
               </label>
               <input
                 type="text"
                 value={customNote}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setCustomNote(e.target.value)}
-                placeholder="Add custom notes (e.g. key requirements, referral contact, referral notes) before saving..."
+                placeholder="Add notes before saving (e.g. key requirements, who referred you)..."
                 className="w-full px-4 py-3 text-sm border-2 border-outline-variant bg-surface-container-lowest focus:outline-none focus:border-primary text-on-surface placeholder:text-outline font-body"
               />
             </div>
