@@ -325,10 +325,10 @@ Identify the job's CORE technical requirements (concrete languages, frameworks, 
 {"coreRequirements":["..."],"matched":["...requirements the candidate clearly has..."],"missing":["...core requirements the candidate lacks..."],"mustHaveMissing":false,"requiredYears":0,"specialistGapMissing":false,"experienceLevel":"Mid","industry":"Technology","salaryNum":0${hnFields}}
 Rules:
 - coreRequirements: concrete technical skills/tools/frameworks/degrees only. Do NOT include years-of-experience, seniority level, or soft skills (leadership/communication) — those are scored separately.
-- matched: count a transferable/equivalent skill as matched (e.g. MySQL or MongoDB satisfies generic "SQL"/"database"; any cloud satisfies "cloud").
+- matched: count a requirement matched ONLY with direct evidence in the resume. A transferable equivalent counts for GENERIC tech (MySQL/MongoDB satisfies "SQL"/"database"; any cloud satisfies "cloud"). But general software experience does NOT satisfy an out-of-field or specialized requirement — a software engineer does NOT match a law/medical/finance degree, a professional license, a specifically required language the post says is non-substitutable (e.g. Go/Rust), deep design/CSS specialization, or a PhD, unless the resume explicitly shows it. When unsure, put it in "missing".
 - requiredYears: the MAX years of experience the job requires (integer, 0 if unstated).
 - mustHaveMissing: true only if a skill explicitly marked "required/must-have" is in "missing".
-- specialistGapMissing: true ONLY if the role needs a FORMAL CREDENTIAL the candidate lacks (PhD, first-author publications, professional license, security clearance). A missing technical skill is NOT a specialist gap.`;
+- specialistGapMissing: true if the role requires a FORMAL CREDENTIAL or out-of-field qualification the candidate lacks — a degree in another field (JD, MD, PhD), a professional license (bar, CPA), first-author publications, or a security clearance. A missing ordinary technical skill is NOT a specialist gap.`;
 }
 
 /**
