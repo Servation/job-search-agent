@@ -523,7 +523,12 @@ export default function App() {
         console.error('Failed to sync profile/config with server:', err);
       }
     };
-    if (profile.rawText) {
+    // Don't sync a degraded placeholder profile (e.g. an unparsed-PDF stub left in
+    // localStorage) — it would overwrite a good profile on the server. Only push
+    // real resume content.
+    const rt = profile.rawText || '';
+    const isPlaceholder = rt.includes('Please copy and paste or input details manually');
+    if (rt && !isPlaceholder) {
       syncProfile();
     }
   }, [profile, llmConfig]);
