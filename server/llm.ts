@@ -93,6 +93,9 @@ export async function performLLMRequest(
     }
 
     const data = await response.json();
+    // Stamp last-success time so the adaptive layer can tell when the model has
+    // gone idle long enough to need a warmup before a full-context evaluation.
+    globalState.llmHealthState.lastSuccessTime = Date.now();
     return data.choices?.[0]?.message?.content || '{}';
   } catch (err: any) {
     clearTimeout(timeoutId);
@@ -100,6 +103,39 @@ export async function performLLMRequest(
       throw new Error(`LLM Request Timeout (${timeoutMs}ms limit exceeded)`);
     }
     throw err;
+  }
+}
+
+// How long the model can sit idle before we assume it may have been unloaded
+// from VRAM and needs a warmup ping. Kept just above the refiner's ~60s heartbeat
+// so back-to-back evaluations don't trigger redundant warmups.
+const WARM_WINDOW_MS = 120000;
+
+/**
+ * Sends a minimal request to force the local model to load into VRAM before a
+ * real (full-context) evaluation. Cold-loading a 12B model can take ~15-20s; if
+ * that load happens during the first scoring attempt it can blow the timeout and
+ * force an unnecessary context reduction. Paying the load cost in a tiny throwaway
+ * request keeps the real request warm (~6s) and at full context. Non-fatal.
+ */
+export async function warmUpLLM(
+  endpoint: string,
+  apiKey: string,
+  modelName: string
+): Promise<void> {
+  const health = globalState.llmHealthState;
+  // Skip if the model was used recently — it's still warm.
+  if (Date.now() - (health.lastSuccessTime || 0) < WARM_WINDOW_MS) return;
+
+  try {
+    console.log('[warmUpLLM] Model idle/cold — sending warmup ping before evaluation...');
+    // Generous timeout to absorb a full cold load; performLLMRequest stamps
+    // lastSuccessTime on success so the subsequent real request skips re-warming.
+    await performLLMRequest(endpoint, apiKey, modelName, 'Reply with: OK', 90000);
+    console.log('[warmUpLLM] Warmup complete — model is resident.');
+  } catch (err: any) {
+    // Non-fatal: the real request still runs its own adaptive retry/timeout logic.
+    console.warn(`[warmUpLLM] Warmup ping failed (non-fatal): ${err.message || err}`);
   }
 }
 
@@ -147,6 +183,13 @@ export async function queryCustomLLMAdaptive(
     baseTimeout = baseTimeoutMs * 1.5;
     console.warn(`[queryCustomLLMAdaptive] LLM Sourcing: Running in DEGRADED mode. Starting at Tier 1 context, base timeout: ${baseTimeout}ms`);
   }
+
+  // Ensure the model is resident before the first full-context attempt. Without
+  // this, a cold-load on the initial Tier 0 request can exceed the timeout and
+  // needlessly drop the job to reduced context (Tier 1) — the historical cause of
+  // ~half of all jobs being flagged "Reduced Context". Skips itself if the model
+  // was used recently (still warm).
+  await warmUpLLM(endpoint, apiKey, modelName);
 
   const maxAttempts = 3;
   let lastError: any = null;

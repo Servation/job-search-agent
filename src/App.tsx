@@ -613,64 +613,46 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0f19] text-slate-100 font-sans" id="applet-background">
-      {/* Premium Elegant Navigation Header */}
-      <header className="border-b border-white/5 bg-slate-950/50 backdrop-blur-lg sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-18 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-md shadow-indigo-500/10">
-              <Briefcase className="w-5.5 h-5.5" />
-            </div>
-            <div>
-              <h1 className="text-base font-bold tracking-tight text-white font-display">Job Search Agent</h1>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                  Scanning Engine Active
-                </span>
-              </div>
-            </div>
+    <div className="min-h-screen bg-background text-on-background font-body pb-24">
+      {/* TopAppBar - Dark Minimalist Neo-Brutalism */}
+      <header className="fixed top-0 w-full z-50 bg-background border-b-2 border-outline-variant flex items-center justify-between px-6 h-16 shadow-md">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary border-2 border-black flex items-center justify-center neo-shadow-primary text-on-primary">
+            <Briefcase className="w-5 h-5" />
           </div>
-
-          <div className="flex items-center gap-3">
-
-            <span className="bg-white/10 h-6 w-px" />
-
-            <div className="text-right hidden sm:block">
-              <span className="text-xs font-semibold text-slate-300 block">
-                AI Engine
-              </span>
-              <span className="text-[10px] text-slate-500 font-medium font-mono">Model: {llmConfig.modelName}</span>
-            </div>
+          <h1 className="font-headline uppercase tracking-widest text-xl font-bold text-primary">AI JOB SYNC</h1>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="hidden md:flex flex-col items-end">
+            <span className="text-[10px] font-label uppercase text-on-surface-variant leading-none tracking-widest">Scanning Engine Active</span>
+            <span className="text-[10px] font-label uppercase text-primary font-bold tracking-widest">Model: {llmConfig.modelName}</span>
           </div>
+          <Zap className="text-primary w-5 h-5 animate-pulse" />
         </div>
       </header>
 
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" id="primary-applet-grid">
+      <main className="pt-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8" id="primary-applet-grid">
         
         {/* Dynamic Warning Alert for First-time setup */}
         {!profile.rawText && (
-          <div className="bg-indigo-950/30 border border-indigo-500/20 backdrop-blur-md rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-bounce-in">
-            <div className="flex gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-900/40 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
-                <Zap className="w-5 h-5" />
-              </div>
+          <section className="border-2 border-primary bg-primary-container p-5 relative overflow-hidden neo-shadow-primary">
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
               <div>
-                <h4 className="text-sm font-bold text-slate-200">Zero-Config AI Matching Required</h4>
-                <p className="text-xs text-indigo-300 mt-1 leading-normal">
-                  Your raw resume context is empty. Load or paste your resume details in <strong>Profile</strong> to allow the AI agent to run personalized matching.
-                </p>
+                <h2 className="font-headline font-bold text-xl uppercase leading-tight text-primary">Zero-Config AI Matching Required</h2>
+                <p className="text-sm mt-2 text-on-surface-variant font-body max-w-2xl">Connect your professional profile to initialize the autonomous discovery agent.</p>
               </div>
+              <button
+                onClick={() => setActiveTab('profile')}
+                className="w-full sm:w-auto bg-primary text-on-primary py-3 px-8 font-headline font-extrabold uppercase tracking-wider hover:opacity-90 active:scale-[0.98] transition-all border-2 border-black flex-shrink-0"
+              >
+                Parse Resume Now
+              </button>
             </div>
-            
-            <button
-              onClick={() => setActiveTab('profile')}
-              className="text-xs font-semibold px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-500/10 transition-colors shrink-0"
-            >
-              Parse Resume Now
-            </button>
-          </div>
+            <div className="absolute -right-4 -top-4 opacity-10">
+              <FileCheck className="w-48 h-48" />
+            </div>
+          </section>
         )}
 
         {/* Dashboard statistics aggregation overview */}
@@ -678,81 +660,83 @@ export default function App() {
 
         {/* Dynamic Prompt to run a scan when settings/profile has changed since last scan */}
         {hasChangesSinceLastScan && activeTab !== 'scanner' && profile.rawText && (
-          <div className="bg-indigo-950/45 border border-indigo-550/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-fade-in shadow-lg shadow-indigo-950/20">
-            <div className="flex gap-3">
-              <div className="w-10 h-10 rounded-xl bg-indigo-900/40 border border-indigo-500/25 flex items-center justify-center text-indigo-405 text-indigo-400 shrink-0">
-                <Sparkles className="w-5 h-5 text-indigo-450 animate-pulse" />
-              </div>
+          <section className="border-2 border-primary bg-primary-container p-5 relative overflow-hidden neo-shadow-primary">
+            <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
               <div>
-                <h4 className="text-sm font-bold text-slate-200 font-display">Targeting Preferences Modified</h4>
-                <p className="text-xs text-indigo-300 mt-1 leading-normal font-sans">
-                  Your targeting positions, location boundaries, minimum match score, or resume profile have changed. Would you like to run a matching scan now?
-                </p>
+                <h2 className="font-headline font-bold text-xl uppercase leading-tight text-primary">Targeting Preferences Modified</h2>
+                <p className="text-sm mt-2 text-on-surface-variant font-body">Your targeting positions, location boundaries, minimum match score, or resume profile have changed. Would you like to run a matching scan now?</p>
               </div>
+              <button
+                onClick={handleLaunchScanFromPrompt}
+                className="w-full sm:w-auto bg-primary text-on-primary py-3 px-8 font-headline font-extrabold uppercase tracking-wider hover:opacity-90 active:scale-[0.98] transition-all border-2 border-black flex items-center justify-center gap-2 flex-shrink-0"
+              >
+                <Sparkles className="w-5 h-5" />
+                Launch Scan Now
+              </button>
             </div>
-            
-            <button
-              onClick={handleLaunchScanFromPrompt}
-              className="text-xs font-semibold px-4.5 py-2.5 bg-indigo-650 hover:bg-indigo-600 active:bg-indigo-705 text-white rounded-xl shadow-md shadow-indigo-550/15 transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer font-sans"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-              Launch Scan Now
-            </button>
-          </div>
+          </section>
         )}
 
-        {/* View Navigation controls */}
-        <div className="flex border-b border-white/10 gap-2 overflow-x-auto min-h-12 scrollbar-none" id="tabs-navigation-deck">
+        {/* View Navigation controls - Neo Brutalist Tabs */}
+        <div className="flex border-b-2 border-outline-variant gap-2 overflow-x-auto scrollbar-none mt-12" id="tabs-navigation-deck">
           <button
             onClick={() => setActiveTab('scanner')}
-            className={`px-5 py-3 text-sm font-semibold tracking-tight transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+            className={`px-6 py-4 text-sm font-headline uppercase font-bold tracking-widest transition-all border-t-2 border-l-2 border-r-2 cursor-pointer ${
               activeTab === 'scanner'
-                ? 'border-indigo-500 text-indigo-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-surface-container border-primary text-primary neo-shadow'
+                : 'bg-transparent border-transparent text-on-surface-variant hover:text-on-surface hover:bg-surface-container hover:border-outline-variant'
             }`}
           >
-            <Briefcase className="w-4 h-4" />
-            Scanner
+            <div className="flex items-center gap-2">
+              <Briefcase className="w-5 h-5" />
+              Scanner
+            </div>
           </button>
           <button
             onClick={() => setActiveTab('tracker')}
-            className={`px-5 py-3 text-sm font-semibold tracking-tight transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+            className={`px-6 py-4 text-sm font-headline uppercase font-bold tracking-widest transition-all border-t-2 border-l-2 border-r-2 cursor-pointer ${
               activeTab === 'tracker'
-                ? 'border-indigo-500 text-indigo-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-surface-container border-primary text-primary neo-shadow'
+                : 'bg-transparent border-transparent text-on-surface-variant hover:text-on-surface hover:bg-surface-container hover:border-outline-variant'
             }`}
           >
-            <FileCheck className="w-4 h-4" />
-            Submission Tracker
+            <div className="flex items-center gap-2">
+              <FileCheck className="w-5 h-5" />
+              Tracker
+            </div>
           </button>
           <button
             onClick={() => setActiveTab('profile')}
-            className={`px-5 py-3 text-sm font-semibold tracking-tight transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+            className={`px-6 py-4 text-sm font-headline uppercase font-bold tracking-widest transition-all border-t-2 border-l-2 border-r-2 cursor-pointer ${
               activeTab === 'profile'
-                ? 'border-indigo-500 text-indigo-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-surface-container border-primary text-primary neo-shadow'
+                : 'bg-transparent border-transparent text-on-surface-variant hover:text-on-surface hover:bg-surface-container hover:border-outline-variant'
             }`}
           >
-            <User className="w-4 h-4" />
-            Profile
+            <div className="flex items-center gap-2">
+              <User className="w-5 h-5" />
+              Profile
+            </div>
           </button>
           <button
             onClick={() => setActiveTab('settings')}
-            className={`px-5 py-3 text-sm font-semibold tracking-tight transition-all border-b-2 flex items-center gap-2 shrink-0 ${
+            className={`px-6 py-4 text-sm font-headline uppercase font-bold tracking-widest transition-all border-t-2 border-l-2 border-r-2 cursor-pointer ${
               activeTab === 'settings'
-                ? 'border-indigo-500 text-indigo-400 font-bold'
-                : 'border-transparent text-slate-400 hover:text-slate-200'
+                ? 'bg-surface-container border-primary text-primary neo-shadow'
+                : 'bg-transparent border-transparent text-on-surface-variant hover:text-on-surface hover:bg-surface-container hover:border-outline-variant'
             }`}
           >
-            <Sliders className="w-4 h-4" />
-            LLM Settings
+            <div className="flex items-center gap-2">
+              <Sliders className="w-5 h-5" />
+              Settings
+            </div>
           </button>
         </div>
 
         {/* Active tab rendered views */}
-        <div className="space-y-6" id="active-tab-panel">
+        <div className="space-y-6 pt-6" id="active-tab-panel">
           {activeTab === 'profile' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               <ResumeParser
                 profile={profile}
                 onChangeProfile={setProfile}
@@ -771,7 +755,7 @@ export default function App() {
           )}
 
           {activeTab === 'settings' && (
-            <div className="space-y-6">
+            <div className="space-y-8">
               <AgentSettings
                 mode="sourcing"
                 llmConfig={llmConfig}
@@ -827,13 +811,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* Humble Human footer */}
-      <footer className="border-t border-white/5 bg-slate-950/30 py-8 mt-16" id="applet-footer">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-500">
-          <span className="font-semibold text-slate-400 font-display">Job Search Agent</span>
-        </div>
-      </footer>
     </div>
   );
 }

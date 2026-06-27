@@ -114,9 +114,9 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
          4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
 
          EXPERIENCE RULES:
-         1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
-         2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
-         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
+         1. STARTING MATCH SCORE: Determine the base matchScore solely on skills.
+         2. EXPERIENCE PENALTY: Calculate the maximum years of experience required by the job. If the required years of experience exceeds ${yearsOfExperience}, you MUST subtract 7 from the matchScore for every year they are short. For example, if the job requires 5 years and the candidate has 3, subtract 14 from the base match score.
+         3. PENALTY REASON: If an experience penalty was applied, you must note "Experience Penalty: -X% (Requires Y years, candidate has ${yearsOfExperience} years)" in the matchReason.`
       : `Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.
 
          CRITERIA-BASED EVALUATION RUBRIC:
@@ -500,11 +500,27 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     freshDb.pendingWorkdayValidation = remaining;
     await writeDbAsync(freshDb);
     
+    // Process validations sequentially to avoid spamming Workday
+    const validationResults: { item: typeof toValidate[0], validation?: any, error?: Error }[] = [];
     for (const item of toValidate) {
       console.log(`[Discovery] Probing candidate Workday host: ${item.tenant} (${item.host}) using site: ${item.site}...`);
       try {
         const validation = await validateWorkdayHost(item.host, item.tenant, item.site);
-        const postDb = await readDbAsync();
+        validationResults.push({ item, validation });
+      } catch (err: any) {
+        console.error(`[Discovery] Unexpected validation error for ${item.tenant}:`, err.message);
+        validationResults.push({ item, error: err });
+      }
+    }
+
+    // Apply DB updates in a single transaction
+    if (validationResults.length > 0) {
+      const postDb = await readDbAsync();
+      let dbUpdated = false;
+      
+      for (const { item, validation, error } of validationResults) {
+        if (error) continue;
+        
         if (validation.success && validation.resolvedSite) {
           if (!postDb.workdayDirectory) postDb.workdayDirectory = [];
           const exists = postDb.workdayDirectory.some(
@@ -521,14 +537,16 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
             });
             console.log(`[Discovery] Validation SUCCESS: Added dynamic Workday company "${formattedName}" (${item.host}) with site path "${validation.resolvedSite}"`);
             addRefinerLog(`System Discovery: Successfully validated and added dynamic Workday site for "${formattedName}" (${item.host})`);
+            dbUpdated = true;
           }
         } else {
           console.log(`[Discovery] Validation FAILED: Rejected Workday candidate "${item.tenant}" (${item.host})`);
           addRefinerLog(`System Discovery: Rejected invalid or blocked Workday host candidate "${item.tenant}" (${item.host})`);
         }
+      }
+      
+      if (dbUpdated) {
         await writeDbAsync(postDb);
-      } catch (err: any) {
-        console.error(`[Discovery] Unexpected validation error for ${item.tenant}:`, err.message);
       }
     }
   }
@@ -702,9 +720,9 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
          4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
 
          EXPERIENCE RULES:
-         1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
-         2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
-         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
+         1. STARTING MATCH SCORE: Determine the base matchScore solely on skills.
+         2. EXPERIENCE PENALTY: Calculate the maximum years of experience required by the job. If the required years of experience exceeds ${yearsOfExperience}, you MUST subtract 7 from the matchScore for every year they are short. For example, if the job requires 5 years and the candidate has 3, subtract 14 from the base match score.
+         3. PENALTY REASON: If an experience penalty was applied, you must note "Experience Penalty: -X% (Requires Y years, candidate has ${yearsOfExperience} years)" in the matchReason.`
       : `Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.
 
          CRITERIA-BASED EVALUATION RUBRIC:

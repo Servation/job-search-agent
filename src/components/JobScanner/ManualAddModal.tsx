@@ -59,117 +59,117 @@ export default function ManualAddModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-      <div className="sleek-card-darker rounded-2xl border border-white/10 shadow-2xl max-w-lg w-full p-6 relative">
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-surface border-4 border-outline-variant neo-shadow max-w-lg w-full p-8 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+          className="absolute top-4 right-4 p-2 bg-surface-container border-2 border-outline-variant hover:border-on-surface text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer"
         >
-          <X className="w-5 h-5" />
+          <X className="w-6 h-6" />
         </button>
-        <h3 className="text-base font-bold text-white mb-4 flex items-center gap-1.5 font-display">
-          <FileSpreadsheet className="w-5 h-5 text-indigo-400" /> Log Position into Tracker
+        <h3 className="text-xl font-headline font-bold text-on-surface mb-6 flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-4">
+          <FileSpreadsheet className="w-6 h-6 text-primary" /> Log Position into Tracker
         </h3>
-        <form onSubmit={handleManualAdd} className="space-y-4 text-left font-sans">
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleManualAdd} className="space-y-6 text-left font-body">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
-              <label className="block text-xs font-semibold text-slate-450 mb-1">Company</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Company</label>
               <input
                 type="text"
                 required
                 value={manualForm.company}
                 onChange={(e) => setManualForm({ ...manualForm, company: e.target.value })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-slate-900/60 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                className="w-full px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-bold"
                 placeholder="Stripe"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-455 mb-1">Title</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Title</label>
               <input
                 type="text"
                 required
                 value={manualForm.title}
                 onChange={(e) => setManualForm({ ...manualForm, title: e.target.value })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-slate-900/60 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                className="w-full px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-bold"
                 placeholder="Frontend Engineer"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
-              <label className="block text-xs font-semibold text-slate-450 mb-1">Location</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Location</label>
               <input
                 type="text"
                 value={manualForm.location}
                 onChange={(e) => setManualForm({ ...manualForm, location: e.target.value })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-slate-900/60 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                className="w-full px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-bold"
                 placeholder="Remote/NYC"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-450 mb-1">Compensation</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Compensation</label>
               <input
                 type="text"
                 value={manualForm.salary}
                 onChange={(e) => setManualForm({ ...manualForm, salary: e.target.value })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-slate-900/60 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+                className="w-full px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-bold"
                 placeholder="e.g. $120k or $90/hr"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div>
-              <label className="block text-xs font-semibold text-slate-450 mb-1">Contract Schema</label>
+              <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Contract Schema</label>
               <select
                 value={manualForm.type}
                 onChange={(e) => setManualForm({ ...manualForm, type: e.target.value as any })}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-slate-900 border border-white/10 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-bold cursor-pointer"
               >
-                <option value="Full-Time" className="bg-slate-955">Full-Time</option>
-                <option value="Contract" className="bg-slate-955">Contract</option>
-                <option value="Part-Time" className="bg-slate-955">Part-Time</option>
+                <option value="Full-Time" className="bg-surface-container-lowest font-bold">Full-Time</option>
+                <option value="Contract" className="bg-surface-container-lowest font-bold">Contract</option>
+                <option value="Part-Time" className="bg-surface-container-lowest font-bold">Part-Time</option>
               </select>
             </div>
-            <div className="flex items-center gap-2 pt-6">
+            <div className="flex items-center gap-3 pt-6 sm:pt-8">
               <input
                 type="checkbox"
                 id="manual-w2"
                 checked={manualForm.isW2}
                 onChange={(e) => setManualForm({ ...manualForm, isW2: e.target.checked })}
-                className="w-4 h-4 accent-indigo-600 rounded bg-slate-900 border-white/10"
+                className="w-5 h-5 accent-primary border-2 border-outline-variant cursor-pointer"
               />
-              <label htmlFor="manual-w2" className="text-xs font-semibold text-slate-400 select-none cursor-pointer">
+              <label htmlFor="manual-w2" className="text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface cursor-pointer select-none">
                 W2 structure setup
               </label>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-450 mb-1">Application URL</label>
+            <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Application URL</label>
             <input
               type="url"
               value={manualForm.url}
               onChange={(e) => setManualForm({ ...manualForm, url: e.target.value })}
-              className="w-full px-3 py-2 text-sm rounded-lg bg-slate-900/60 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-600"
+              className="w-full px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-mono font-bold"
               placeholder="https://..."
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-450 mb-1">Short Description</label>
+            <label className="block text-xs font-headline font-extrabold uppercase tracking-widest text-on-surface mb-2">Short Description</label>
             <textarea
               value={manualForm.description}
               onChange={(e) => setManualForm({ ...manualForm, description: e.target.value })}
-              className="w-full h-20 px-3 py-2 text-sm rounded-lg bg-slate-900/60 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none placeholder-slate-650"
+              className="w-full h-24 px-4 py-3 text-sm bg-surface-container border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary resize-none placeholder:text-outline font-body"
               placeholder="Core tech required..."
             />
           </div>
 
           <button
             type="submit"
-            className="w-full py-2.5 rounded-xl bg-indigo-650 text-white font-semibold text-sm hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-500/10"
+            className="w-full py-4 bg-primary text-on-primary font-headline font-extrabold uppercase tracking-widest text-sm border-2 border-black hover:opacity-90 active:scale-[0.98] transition-all neo-shadow cursor-pointer mt-4"
           >
             Log to Pipeline
           </button>

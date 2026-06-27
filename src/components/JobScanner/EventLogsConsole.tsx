@@ -29,21 +29,21 @@ export default function EventLogsConsole({
   }, [aiLogs]);
 
   return (
-    <div className="bg-slate-950/80 p-5 rounded-2xl border border-white/5 shadow-inner" id="ai-telemetering-logs">
-      <div className="text-slate-400 border-b border-white/5 pb-2 mb-3.5 font-bold flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          <div className={`w-2.5 h-2.5 rounded-full ${
-            scanStatus === 'running' ? "bg-indigo-500 animate-ping" : "bg-emerald-500"
+    <div className="bg-surface-container border-2 border-outline-variant p-6 shadow-[inset_0px_0px_10px_rgba(0,0,0,0.5)]" id="ai-telemetering-logs">
+      <div className="text-on-surface-variant border-b-2 border-outline-variant pb-3 mb-4 font-headline font-bold flex items-center justify-between text-sm uppercase tracking-widest">
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 border-2 border-black ${
+            scanStatus === 'running' ? "bg-primary animate-pulse" : "bg-emerald-500"
           }`} />
-          <span className="tracking-wider uppercase font-display">EVENT LOGS</span>
+          <span>EVENT LOGS</span>
         </div>
-        <div className="flex items-center gap-2 animate-fade-in font-sans">
+        <div className="flex items-center gap-3 animate-fade-in font-body">
           <button
             onClick={() => setRalphMode(!ralphMode)}
-            className={`text-[10px] font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer flex items-center gap-1 shadow-sm ${
+            className={`text-[10px] font-headline font-extrabold uppercase tracking-widest px-4 py-2 border-2 transition-all cursor-pointer flex items-center gap-2 neo-shadow-sm ${
               ralphMode
-                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
-                : 'bg-slate-900 text-slate-400 border-white/10 hover:text-slate-200 hover:bg-slate-850'
+                ? 'bg-warning-container text-on-warning-container border-warning hover:opacity-90'
+                : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant hover:text-on-surface hover:border-outline'
             }`}
             title="Toggle Ralph Wiggum funny quote commentary event logs"
           >
@@ -51,7 +51,7 @@ export default function EventLogsConsole({
           </button>
           <button
             onClick={clearAiLogs}
-            className="text-[10px] font-bold px-3 py-1.5 rounded-lg border border-white/10 bg-slate-900 text-slate-400 hover:text-rose-455 hover:border-rose-500/25 hover:bg-slate-850 transition-all cursor-pointer shadow-sm"
+            className="text-[10px] font-headline font-extrabold uppercase tracking-widest px-4 py-2 border-2 border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:text-error hover:border-error hover:bg-error-container transition-all cursor-pointer neo-shadow-sm"
             title="Clear all event logs from history"
           >
             Clear Logs
@@ -60,18 +60,18 @@ export default function EventLogsConsole({
       </div>
       <div
         ref={logsContainerRef}
-        className="font-mono text-[11px] text-slate-300 space-y-1.5 max-h-44 overflow-y-auto leading-relaxed pr-2 flex flex-col"
+        className="font-mono text-xs text-on-surface space-y-2 max-h-48 overflow-y-auto leading-relaxed pr-3 flex flex-col"
       >
         {aiLogs.length === 0 ? (
-          <div className="text-slate-600 italic py-2">No events logged yet. Try parsing or scanning to generate log streams.</div>
+          <div className="text-outline italic py-2 font-headline uppercase tracking-widest">No events logged yet. Try parsing or scanning to generate log streams.</div>
         ) : (
           [...aiLogs].reverse().map((log, idx) => {
             const hasColor = log.includes("Error") || log.includes("failed");
             const hasSuccess = log.includes("successful") || log.includes("analyzed") || log.includes("Success") || log.includes("completed");
             return (
-              <div key={idx} className="flex gap-2.5 items-start">
-                <span className="text-slate-650 opacity-40 select-none shrink-0">&gt;</span>
-                <span className={hasColor ? "text-rose-400 font-medium" : hasSuccess ? "text-emerald-400 font-medium" : "text-slate-300"}>
+              <div key={idx} className="flex gap-3 items-start border-b border-outline-variant/30 pb-2">
+                <span className="text-primary font-bold select-none shrink-0">&gt;</span>
+                <span className={hasColor ? "text-error font-bold" : hasSuccess ? "text-emerald-500 font-bold" : "text-on-surface"}>
                   {log}
                 </span>
               </div>

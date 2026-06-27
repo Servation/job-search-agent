@@ -10,45 +10,45 @@ export default function DashboardStats({ stats }: DashboardStatsProps) {
   return (
     <div className="space-y-6" id="dashboard-stats-main">
       {/* Prime Stats Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" id="essential-metrics-grid">
-        <div className="sleek-card rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-slate-800/40 border border-white/5 flex items-center justify-center text-slate-300 shrink-0">
-            <Briefcase className="w-6 h-6" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-6" id="essential-metrics-grid">
+        <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-primary hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Scanned Positions</span>
+            <div className="w-10 h-10 bg-surface-container-lowest border-2 border-outline-variant flex items-center justify-center text-on-surface-variant shrink-0">
+              <Briefcase className="w-5 h-5" />
+            </div>
           </div>
-          <div>
-            <span className="text-xs text-slate-400 block font-medium">Scanned Positions</span>
-            <span className="text-2xl font-bold text-white tracking-tight">{stats.totalScanned}</span>
-          </div>
+          <span className="text-4xl font-headline font-bold text-on-surface tracking-tight">{stats.totalScanned}</span>
         </div>
 
-        <div className="sleek-card rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-red-950/20 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0">
-            <History className="w-6 h-6 animate-pulse" style={{ animationDuration: '3s' }} />
+        <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-error hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Duplicates Prevented</span>
+            <div className="w-10 h-10 bg-error-container border-2 border-error flex items-center justify-center text-error shrink-0">
+              <History className="w-5 h-5 animate-pulse" style={{ animationDuration: '3s' }} />
+            </div>
           </div>
-          <div>
-            <span className="text-xs text-slate-400 block font-medium">Duplicates Prevented</span>
-            <span className="text-2xl font-bold text-white tracking-tight">{stats.duplicatesPrevented}</span>
-          </div>
+          <span className="text-4xl font-headline font-bold text-on-surface tracking-tight">{stats.duplicatesPrevented}</span>
         </div>
 
-        <div className="sleek-card rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-violet-950/20 border border-violet-500/20 flex items-center justify-center text-violet-400 shrink-0">
-            <Sparkles className="w-6 h-6 animate-pulse" style={{ animationDuration: '3s' }} />
+        <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-primary-variant hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">LLM Evaluations</span>
+            <div className="w-10 h-10 bg-primary/20 border-2 border-primary-variant flex items-center justify-center text-primary-variant shrink-0">
+              <Sparkles className="w-5 h-5 animate-pulse" style={{ animationDuration: '3s' }} />
+            </div>
           </div>
-          <div>
-            <span className="text-xs text-slate-400 block font-medium">LLM Evaluations</span>
-            <span className="text-2xl font-bold text-violet-400 tracking-tight">{stats.llmEvaluations}</span>
-          </div>
+          <span className="text-4xl font-headline font-bold text-primary-variant tracking-tight">{stats.llmEvaluations}</span>
         </div>
 
-        <div className="sleek-card rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-emerald-950/20 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
-            <Globe className="w-6 h-6" />
+        <div className="bg-surface border-4 border-outline-variant p-6 flex flex-col justify-between gap-4 neo-shadow-sm hover:border-emerald-500 hover:translate-x-[2px] hover:-translate-y-[2px] transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-headline font-extrabold uppercase tracking-widest text-on-surface-variant block">Sourced Postings</span>
+            <div className="w-10 h-10 bg-emerald-500/10 border-2 border-emerald-500 flex items-center justify-center text-emerald-500 shrink-0">
+              <Globe className="w-5 h-5" />
+            </div>
           </div>
-          <div>
-            <span className="text-xs text-slate-400 block font-medium">Sourced Postings</span>
-            <span className="text-2xl font-bold text-emerald-400 tracking-tight">{stats.totalSourced}</span>
-          </div>
+          <span className="text-4xl font-headline font-bold text-emerald-500 tracking-tight">{stats.totalSourced}</span>
         </div>
       </div>
     </div>

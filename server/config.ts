@@ -6,7 +6,7 @@
 import { WorkdayCompany, SmartRecruitersCompany } from '../src/types';
 import { readDb, writeDb } from './db';
 
-export const PORT = 3000;
+export const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 export const CONTEXT_TIERS = [
   { resumeChars: 8000, descriptionChars: 25000, label: 'full' },      // Tier 0: Normal
@@ -169,6 +169,10 @@ export const globalState = {
     totalAttempts: 0,
     totalSuccesses: 0,
     totalFailures: 0,
+    // Timestamp (ms) of the last successful LLM call. Used to decide whether the
+    // model has likely gone cold (idle long enough to be unloaded from VRAM) and
+    // therefore needs a warmup ping before a full-context evaluation.
+    lastSuccessTime: 0,
   }
 };
 

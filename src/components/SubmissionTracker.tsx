@@ -80,27 +80,29 @@ export default function SubmissionTracker({
   };
 
   return (
-    <div className="sleek-card rounded-2xl border border-white/10 shadow-lg p-6 sm:p-8 space-y-6" id="submission-tracker-board">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <section className="space-y-8" id="submission-tracker-board">
+      <div className="bg-surface border-2 border-outline-variant p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-6 neo-shadow">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display">
-            <FileCheck className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-2xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest">
+            <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
+              <FileCheck className="w-6 h-6" />
+            </div>
             Submission Tracker
           </h2>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm font-headline font-bold text-on-surface-variant mt-2 uppercase tracking-widest">
             Track and update submission pipelines. Prevent applying to identical openings.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold px-2.5 py-1 bg-slate-900 text-indigo-400 rounded-lg border border-white/5 font-mono">
-            Pipeline Volume: {jobs.length} Active Positions
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+          <span className="text-sm font-headline font-extrabold uppercase tracking-widest px-4 py-2 bg-surface-container border-2 border-outline-variant text-on-surface text-center">
+            Pipeline Volume: {jobs.length} Active
           </span>
           <button
             onClick={() => setShowAddForm(v => !v)}
-            className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/25 text-indigo-300 transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-2 text-sm font-headline font-extrabold uppercase tracking-widest px-6 py-3 bg-primary text-on-primary border-2 border-black hover:opacity-90 active:scale-[0.98] transition-all cursor-pointer neo-shadow"
           >
-            {showAddForm ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+            {showAddForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
             {showAddForm ? 'Cancel' : 'Add Manually'}
           </button>
         </div>
@@ -115,50 +117,50 @@ export default function SubmissionTracker({
       )}
 
       {/* Filter and search control bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      <div className="bg-surface-container-lowest border-2 border-outline-variant p-4 flex flex-col sm:flex-row gap-4 neo-shadow-sm">
         <div className="relative flex-grow">
-          <Search className="w-4 h-4 text-slate-455 absolute left-3.5 top-3" />
+          <Search className="w-5 h-5 text-outline absolute left-4 top-3.5" />
           <input
             type="text"
             value={filterSearch}
             onChange={(e) => setFilterSearch(e.target.value)}
             placeholder="Search saved positions by title or company name..."
-            className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900/30 text-white placeholder-slate-655"
+            className="w-full pl-12 pr-4 py-3 text-sm border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface text-on-surface placeholder:text-outline font-headline font-bold uppercase tracking-wider"
           />
         </div>
 
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900 text-slate-200 font-semibold shrink-0 cursor-pointer"
+          className="px-4 py-3 text-sm border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface text-on-surface font-headline font-extrabold uppercase tracking-widest shrink-0 cursor-pointer"
         >
-          <option value="all" className="bg-slate-950">Display All Statuses</option>
+          <option value="all" className="font-bold">Display All Statuses</option>
           {statuses.map((s) => (
-            <option key={s.value} value={s.value} className="bg-slate-950">Filter: {s.label}</option>
+            <option key={s.value} value={s.value} className="font-bold">Filter: {s.label}</option>
           ))}
         </select>
 
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as any)}
-          className="px-4 py-2 text-sm rounded-xl border border-white/10 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-slate-900 text-slate-200 font-semibold shrink-0 cursor-pointer"
+          className="px-4 py-3 text-sm border-2 border-outline-variant focus:outline-none focus:border-primary bg-surface text-on-surface font-headline font-extrabold uppercase tracking-widest shrink-0 cursor-pointer"
         >
-          <option value="company" className="bg-slate-950">Sort: Company Name</option>
-          <option value="title" className="bg-slate-950">Sort: Job Title</option>
-          <option value="score" className="bg-slate-950">Sort: Match Score</option>
-          <option value="date" className="bg-slate-950">Sort: Date Applied</option>
-          <option value="status" className="bg-slate-950">Sort: Stage Progress</option>
+          <option value="company" className="font-bold">Sort: Company Name</option>
+          <option value="title" className="font-bold">Sort: Job Title</option>
+          <option value="score" className="font-bold">Sort: Match Score</option>
+          <option value="date" className="font-bold">Sort: Date Applied</option>
+          <option value="status" className="font-bold">Sort: Stage Progress</option>
         </select>
       </div>
 
       {sortedJobs.length === 0 ? (
-        <div className="py-16 text-center text-slate-400 border border-dashed border-white/10 rounded-2xl">
-          <AlertCircle className="w-10 h-10 text-slate-550 mx-auto mb-3" />
-          <p className="text-sm font-semibold text-slate-300">No saved submissions tracked with current parameters.</p>
-          <p className="text-xs text-slate-500 mt-1">Trigger a Daily Scan and click &quot;Save &amp; Log Submission&quot; to log items here, or use &quot;Add Manually&quot; above.</p>
+        <div className="py-16 text-center bg-surface-container-lowest border-2 border-dashed border-outline-variant">
+          <AlertCircle className="w-12 h-12 text-outline mx-auto mb-4" />
+          <p className="text-base font-headline font-extrabold text-on-surface uppercase tracking-widest mb-2">No saved submissions tracked with current parameters.</p>
+          <p className="text-sm font-headline font-bold text-on-surface-variant uppercase tracking-wider">Trigger a Daily Scan and click "Save &amp; Log Submission" to log items here, or use "Add Manually" above.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4" id="submission-pipeline-cards">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="submission-pipeline-cards">
           {sortedJobs.map((j) => (
             <TrackedJobCard
               key={j.id}
@@ -170,6 +172,6 @@ export default function SubmissionTracker({
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

@@ -7,3 +7,11 @@ coverage/
 .env*
 !.env.example
 discovered_jobs.json
+GEMINI.md
+CONTEXT.md
+
+# Local scratch / diagnostics (not for the repo)
+discovered_jobs.backup-*.json
+app_shell.html
+test-*.cjs
+test-llm.js

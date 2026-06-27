@@ -4,13 +4,13 @@
  */
 
 import React, { useState } from 'react';
-import { FileText, ArrowRight, Sparkles, Check, Edit2, Upload } from 'lucide-react';
+import { FileText, ArrowRight, Sparkles, Check, Edit2, Upload, Layers } from 'lucide-react';
 import { ResumeProfile, LLMConfig } from '../types';
 
 interface ResumeParserProps {
   profile: ResumeProfile;
   onChangeProfile: (profile: ResumeProfile) => void;
-  onParseComplete: (parsed: { name?: string; skills?: string[]; roles?: string[]; location?: string }) => void;
+  onParseComplete: (parsed: { name?: string; skills?: string[]; roles?: string[]; location?: string; yearsOfExperience?: number }) => void;
   addAiLog: (msg: string) => void;
   llmConfig: LLMConfig;
 }
@@ -87,6 +87,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
               skills: data.parsedSkills,
               roles: data.targetRoles,
               location: data.preferredLocation,
+              yearsOfExperience: data.yearsOfExperience,
             });
 
             onChangeProfile({
@@ -96,6 +97,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
               parsedSkills: data.parsedSkills || [],
               targetRoles: data.targetRoles || [],
               preferredLocation: data.preferredLocation || 'Remote',
+              yearsOfExperience: data.yearsOfExperience ?? profile.yearsOfExperience,
             });
 
             setSuccessMsg(true);
@@ -147,6 +149,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
               skills: data.parsedSkills,
               roles: data.targetRoles,
               location: data.preferredLocation,
+              yearsOfExperience: data.yearsOfExperience,
             });
 
             onChangeProfile({
@@ -156,6 +159,7 @@ export default function ResumeParser({ profile, onChangeProfile, onParseComplete
               parsedSkills: data.parsedSkills || [],
               targetRoles: data.targetRoles || [],
               preferredLocation: data.preferredLocation || 'Remote',
+              yearsOfExperience: data.yearsOfExperience ?? profile.yearsOfExperience,
             });
 
             setSuccessMsg(true);
@@ -241,6 +245,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
         skills: data.parsedSkills,
         roles: data.targetRoles,
         location: data.preferredLocation,
+        yearsOfExperience: data.yearsOfExperience,
       });
 
       onChangeProfile({
@@ -250,6 +255,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
         parsedSkills: data.parsedSkills || [],
         targetRoles: data.targetRoles || [],
         preferredLocation: data.preferredLocation || 'Remote',
+        yearsOfExperience: data.yearsOfExperience ?? profile.yearsOfExperience,
       });
 
       setSuccessMsg(true);
@@ -302,6 +308,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
       skills: foundSkills,
       roles: targetRoles,
       location: "Remote",
+      yearsOfExperience: 0,
     });
 
     onChangeProfile({
@@ -311,6 +318,7 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
       parsedSkills: foundSkills,
       targetRoles: targetRoles,
       preferredLocation: "Remote",
+      yearsOfExperience: profile.yearsOfExperience,
     });
 
     setSuccessMsg(true);
@@ -318,30 +326,32 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
   };
 
   return (
-    <div className="sleek-card rounded-2xl border border-white/10 shadow-lg p-6 sm:p-8" id="resume-parser-container">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-6 gap-4">
+    <section className="bg-surface border-2 border-outline-variant p-6 sm:p-8 neo-shadow relative" id="resume-parser-container">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4 border-b-2 border-outline-variant pb-4">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display">
-            <FileText className="w-5 h-5 text-indigo-400" />
+          <h2 className="text-2xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest">
+            <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
+              <FileText className="w-6 h-6" />
+            </div>
             Resume Profile
           </h2>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-on-surface-variant mt-3 font-body">
             Input copy/pasted resume details to configure parsing queries for the Job Search Agent.
           </p>
         </div>
       </div>
 
-      <div className="space-y-5 font-sans">
+      <div className="space-y-8 font-body">
         {/* 🚀 Drag and drop document file upload */}
         <div 
           onDragEnter={handleDrag}
           onDragOver={handleDrag}
           onDragLeave={handleDrag}
           onDrop={handleDrop}
-          className={`relative p-6 rounded-2xl border-2 border-dashed transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+          className={`relative p-8 border-2 border-dashed transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
             dragActive 
-              ? 'border-indigo-505 bg-indigo-950/25 ring-2 ring-indigo-550/10' 
-              : 'border-white/10 bg-slate-900/40 hover:bg-slate-900/60 hover:border-white/15'
+              ? 'border-primary bg-primary-container scale-[1.02]' 
+              : 'border-outline-variant bg-surface-container hover:bg-surface-container-high hover:border-primary'
           }`}
           onClick={() => document.getElementById('resume-file-input')?.click()}
         >
@@ -352,88 +362,91 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
             accept=".pdf,.txt,.md"
             onChange={handleFileInputChange}
           />
-          <Upload className={`w-8 h-8 ${dragActive ? 'text-indigo-450 animate-bounce' : 'text-slate-400'} mb-2`} />
-          <h4 className="text-xs font-semibold text-white font-display">
+          <Upload className={`w-10 h-10 ${dragActive ? 'text-primary animate-bounce' : 'text-on-surface-variant'} mb-4`} />
+          <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface">
             Upload Document (PDF, TXT, MD)
           </h4>
-          <p className="text-[10px] text-slate-450 mt-1 max-w-xs leading-normal font-sans text-slate-400">
+          <p className="text-xs text-on-surface-variant mt-2 max-w-xs leading-normal">
             Drag & drop your document file here, or click to browse local folders.
           </p>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2 font-display">
-            Resume / Professional Experience Text
+          <label className="block text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 flex items-center justify-between">
+            <span>Raw Resume Content</span>
           </label>
           <textarea
             value={resumeText}
             onChange={(e) => setResumeText(e.target.value)}
             placeholder="Paste your full resume or experience history here..."
-            className="w-full h-44 px-4 py-3 rounded-xl border border-white/10 bg-slate-950 text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder:text-slate-600 font-sans leading-relaxed resize-y"
+            className="w-full h-56 px-4 py-4 border-2 border-outline-variant bg-surface-container-lowest text-on-surface text-sm focus:outline-none focus:border-primary focus:ring-0 transition-all placeholder:text-outline font-mono leading-relaxed resize-y"
           />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-4 font-sans">
-          <div className="text-xs text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-surface-container border-2 border-outline-variant">
+          <div className="text-sm font-headline uppercase font-bold tracking-wider">
             {profile.parsedName ? (
-              <span className="flex items-center gap-1.5 text-emerald-450 font-semibold font-display">
-                <Check className="w-4 h-4 text-emerald-400" /> Active Profile: {profile.parsedName}
+              <span className="flex items-center gap-2 text-primary">
+                <Check className="w-5 h-5" /> Active Profile: {profile.parsedName}
               </span>
             ) : (
-              <span className="text-slate-500 font-mono">Not parsed yet</span>
+              <span className="text-outline-variant">Not parsed yet</span>
             )}
           </div>
           
           <button
             onClick={handleParse}
             disabled={isParsing || !resumeText.trim()}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-650 text-white font-semibold text-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-500/10 cursor-pointer"
+            className="flex items-center gap-2 px-6 py-3 bg-primary text-on-primary font-headline font-extrabold uppercase tracking-widest hover:opacity-90 active:scale-[0.98] focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed transition-all border-2 border-black neo-shadow-primary cursor-pointer"
           >
             {isParsing ? (
               <span className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-5 w-5 text-on-primary" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                AI Agent Parsing...
+                Parsing...
               </span>
             ) : (
               <>
-                <Sparkles className="w-4 h-4 text-amber-400" />
+                <Sparkles className="w-5 h-5" />
                 Parse Resume
-                <ArrowRight className="w-4 h-4" />
+                <ArrowRight className="w-5 h-5" />
               </>
             )}
           </button>
         </div>
 
         {parseError && (
-          <div className="p-3 bg-rose-950/40 text-xs text-rose-300 rounded-xl border border-rose-500/20 leading-relaxed font-mono">
+          <div className="p-4 bg-error-container text-sm text-on-error-container border-2 border-error leading-relaxed font-mono font-bold uppercase tracking-wider">
             {parseError}
           </div>
         )}
 
         {successMsg && (
-          <div className="p-3 bg-emerald-950/45 text-xs text-emerald-300 rounded-xl border border-emerald-500/15 flex items-center gap-2">
-            <Check className="w-4 h-4 text-emerald-400" /> Customized parsing successful! Target filters and keywords configured below.
+          <div className="p-4 bg-primary-container text-sm text-on-primary-container border-2 border-primary flex items-center gap-3 font-headline font-bold uppercase tracking-wider">
+            <Check className="w-6 h-6 text-primary" /> Customized parsing successful! Target filters configured below.
           </div>
         )}
 
         {profile.parsedSkills && profile.parsedSkills.length > 0 && (
-          <div className="pt-4 border-t border-white/5 transition-all">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400 font-display">Parsed Scope Metrics</span>
+          <div className="pt-6 border-t-2 border-outline-variant transition-all">
+            <div className="flex items-center justify-between mb-6">
+              <span className="text-lg font-headline font-bold uppercase tracking-widest text-primary flex items-center gap-2">
+                <Layers className="w-5 h-5" />
+                Parsed Scope Metrics
+              </span>
               <button
                 onClick={() => setIsEditingTags(!isEditingTags)}
-                className="text-xs text-slate-450 hover:text-white flex items-center gap-1 font-semibold"
+                className="px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-2 border-outline-variant hover:border-primary hover:text-primary transition-all flex items-center gap-2"
               >
-                <Edit2 className="w-3 h-3" /> {isEditingTags ? "Close Edit" : "Edit Details"}
+                <Edit2 className="w-4 h-4" /> {isEditingTags ? "Close Edit" : "Edit Details"}
               </button>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <span className="text-xs font-semibold text-slate-400 block mb-1.5">Primary Target Roles:</span>
+            <div className="space-y-6">
+              <div className="p-5 bg-surface-container border-2 border-outline-variant">
+                <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block mb-3">Primary Target Roles</span>
                 {isEditingTags ? (
                   <input
                     type="text"
@@ -442,13 +455,13 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
                       ...profile,
                       targetRoles: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
                     })}
-                    className="w-full px-3 py-1.5 text-sm bg-slate-950 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-mono placeholder:text-outline"
                     placeholder="Writers, React, Soft Engineer"
                   />
                 ) : (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {profile.targetRoles?.map((role, idx) => (
-                      <span key={idx} className="px-2.5 py-1 bg-slate-900 border border-white/5 text-xs font-medium rounded-lg text-slate-300">
+                      <span key={idx} className="px-3 py-1.5 bg-surface border-2 border-outline-variant text-xs font-headline font-bold uppercase tracking-wider text-on-surface">
                         {role}
                       </span>
                     ))}
@@ -456,8 +469,8 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
                 )}
               </div>
 
-              <div>
-                <span className="text-xs font-semibold text-slate-400 block mb-1.5">Core Technical Skills:</span>
+              <div className="p-5 bg-surface-container border-2 border-outline-variant">
+                <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block mb-3">Core Technical Skills</span>
                 {isEditingTags ? (
                   <input
                     type="text"
@@ -466,13 +479,13 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
                       ...profile,
                       parsedSkills: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
                     })}
-                    className="w-full px-3 py-1.5 text-sm bg-slate-950 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                    className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-mono placeholder:text-outline"
                     placeholder="React, AWS, CSS"
                   />
                 ) : (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-2">
                     {profile.parsedSkills?.map((skill, idx) => (
-                      <span key={idx} className="px-2.5 py-1 bg-slate-953 text-xs rounded-md text-slate-350 border border-white/5 font-mono">
+                      <span key={idx} className="px-2.5 py-1 bg-surface-container-high border-2 border-outline-variant text-xs font-mono font-bold text-primary">
                         {skill}
                       </span>
                     ))}
@@ -480,21 +493,24 @@ B.S. in Computer Science | New York University (2017 - 2021)`;
                 )}
               </div>
 
-              <div>
-                <span className="text-xs font-semibold text-slate-400 block mb-1">Target Minimum Match Score: <strong className="text-indigo-400 font-mono">{profile.minMatchScore}%</strong></span>
+              <div className="p-5 bg-surface-container border-2 border-outline-variant">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface block">Target Minimum Match Score</span>
+                  <span className="text-lg font-headline font-extrabold text-primary border-b-2 border-primary px-2">{profile.minMatchScore}%</span>
+                </div>
                 <input
                   type="range"
                   min="30"
                   max="90"
                   value={profile.minMatchScore}
                   onChange={(e) => onChangeProfile({ ...profile, minMatchScore: Number(e.target.value) })}
-                  className="w-full accent-indigo-500 h-1.5 bg-slate-850 rounded-lg cursor-pointer mt-3"
+                  className="w-full h-2 bg-outline-variant appearance-none cursor-pointer accent-primary"
                 />
               </div>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

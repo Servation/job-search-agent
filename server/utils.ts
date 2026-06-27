@@ -412,46 +412,6 @@ export function isBlocklistedRole(title: string, targetRoles: string[], yearsOfE
   });
 }
 
-export function exceedsExperienceRequirement(description: string, yearsOfExperience: number): boolean {
-  if (!yearsOfExperience || yearsOfExperience <= 0) return false;
-
-  const text = description.toLowerCase();
-  const maxAllowed = yearsOfExperience + 2;
-
-  // Regex patterns to capture years of experience requirements
-  const regexes = [
-    /\b(\d+)\s*\+?\s*yrs?\b/g,
-    /\b(\d+)\s*\+?\s*years?\b/g,
-    /\b(\d+)\s*-\s*(\d+)\s*years?\b/g,
-    /\b(\d+)\s*-\s*(\d+)\s*yrs?\b/g,
-    /\b(\d+)\s*to\s*(\d+)\s*years?\b/g,
-    /\b(\d+)\s*to\s*(\d+)\s*yrs?\b/g,
-  ];
-
-  for (const regex of regexes) {
-    let match;
-    regex.lastIndex = 0;
-    while ((match = regex.exec(text)) !== null) {
-      const yrs = parseInt(match[1], 10);
-      if (!isNaN(yrs)) {
-        // Find if this is experience-related context
-        const matchIndex = match.index;
-        const start = Math.max(0, matchIndex - 60);
-        const end = Math.min(text.length, matchIndex + match[0].length + 60);
-        const context = text.slice(start, end);
-        
-        const isExperienceRelated = /experience|require|minimum|at least|work|industry|background|professional|designing|building|developing/i.test(context);
-        const isExclusionPhrase = /team has|we have|company has|our developers have|our engineers have|over\s+\d+\s+years\s+of\s+(combined|total)/i.test(context);
-
-        if (isExperienceRelated && !isExclusionPhrase && yrs > maxAllowed) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
 
 export function normalizeJobUrl(urlStr: string): string {
   try {

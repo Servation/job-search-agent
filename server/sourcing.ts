@@ -10,7 +10,6 @@ import {
   communitySlugToName, 
   matchesKeywords, 
   isBlocklistedRole, 
-  exceedsExperienceRequirement, 
   matchesLocation, 
   stripHtmlCommunity 
 } from './utils';
@@ -372,7 +371,6 @@ export async function fetchGreenhouseJobs(
             const locName = j.location?.name || '';
             return matchesKeywords(title, keywords) && 
                    !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(j.content || '', yearsOfExperience) &&
                    matchesLocation(locName, searchLocation, prefersRemote);
           })
           .map(j => ({
@@ -422,7 +420,6 @@ export async function fetchLeverJobs(
             const loc = j.categories?.location || j.location || '';
             return matchesKeywords(title, keywords) && 
                    !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
                    matchesLocation(loc, searchLocation, prefersRemote);
           })
           .map(j => {
@@ -481,10 +478,8 @@ export async function fetchAshbyJobs(
             if (!j.isListed) return false;
             const title = j.title || '';
             const locName = j.location || '';
-            const desc = j.descriptionPlain || j.descriptionHtml || '';
             return matchesKeywords(title, keywords) &&
                    !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(desc, yearsOfExperience) &&
                    matchesLocation(locName, searchLocation, prefersRemote);
           })
           .map(j => {
@@ -666,7 +661,7 @@ export async function fetchWorkdayJobs(
                 const desc = stripHtmlCommunity(jobDescHtml).slice(0, 15000);
                 
                 const loc = p.locationsText || 'Specified on site';
-                if (!matchesLocation(loc, searchLocation, prefersRemote) || exceedsExperienceRequirement(jobDescHtml, yearsOfExperience)) {
+                if (!matchesLocation(loc, searchLocation, prefersRemote)) {
                   return null;
                 }
                 
@@ -784,7 +779,7 @@ export async function fetchSmartRecruitersJobs(
                 const country = dData.location?.country || '';
                 const loc = [city, region, country].filter(Boolean).join(', ') || 'Remote';
                 
-                if (!matchesLocation(loc, searchLocation, prefersRemote) || exceedsExperienceRequirement(jobDescHtml, yearsOfExperience)) {
+                if (!matchesLocation(loc, searchLocation, prefersRemote)) {
                   return null;
                 }
                 
@@ -864,7 +859,6 @@ export async function fetchRemoteOKJobs(
         const titleMatches = matchesKeywords(title, allKw) || tags.some((t: string) => allKw.some(kw => t.includes(kw)));
         return titleMatches && 
                !isBlocklistedRole(title, targetRoles, yearsOfExperience) && 
-               !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
                matchesLocation(loc, searchLocation, prefersRemote);
       })
       .map(j => ({
@@ -937,7 +931,6 @@ export async function fetchRemotiveJobs(
             const titleMatches = matchesKeywords(title, allKw) || tags.some((t: string) => allKw.some(kw => t.includes(kw)));
             return titleMatches &&
                    !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-                   !exceedsExperienceRequirement(j.description || '', yearsOfExperience) &&
                    matchesLocation(loc, searchLocation, prefersRemote);
           })
           .map((j: any) => ({

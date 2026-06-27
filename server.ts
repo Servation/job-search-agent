@@ -23,7 +23,6 @@ import {
   extractRoleKeywords, 
   matchesKeywords, 
   isBlocklistedRole, 
-  exceedsExperienceRequirement, 
   normalizeJobUrl, 
   extractJobNumber, 
   stripHtmlCommunity,
@@ -46,6 +45,7 @@ import {
   RawCommunityJob,
   harvestWorkdayUrl
 } from './server/sourcing';
+
 import { 
   runBackgroundSourcing, 
   runRefinementCycle, 
@@ -114,6 +114,7 @@ app.post('/api/resume/parse', async (req, res) => {
       3. Suggested target roles matching their background (targetRoles)
       4. General location constraints or preferences (preferredLocation)
       5. Reconstructed clean plain text from the document (extractedRawText)
+      6. Total professional years of experience as an integer (yearsOfExperience)
 
       Resume Text:
       """
@@ -126,7 +127,8 @@ app.post('/api/resume/parse', async (req, res) => {
         "parsedSkills": ["Skill 1", "Skill 2", ...],
         "targetRoles": ["Role 1", "Role 2", ...],
         "preferredLocation": "Location or Remote",
-        "extractedRawText": "Cleaned plain text of the resume"
+        "extractedRawText": "Cleaned plain text of the resume",
+        "yearsOfExperience": 5
       }
 
       Do not include markdown code block syntax (like \`\`\`json) or any explanations, comments, or extra text. Return ONLY the raw JSON string.
@@ -297,8 +299,7 @@ app.post('/api/jobs/source', async (req, res) => {
 
         // Apply filters
         if (matchesKeywords(title, roleKeywords) && 
-            !isBlocklistedRole(title, targetRoles, yearsOfExperience) &&
-            !exceedsExperienceRequirement(cleanText, yearsOfExperience)) {
+            !isBlocklistedRole(title, targetRoles, yearsOfExperience)) {
           webScrapedJobs.push({
             title,
             company,
@@ -1520,6 +1521,113 @@ app.post('/api/jobs/trigger-refiner', async (req, res) => {
   } catch (err: any) {
     console.error('[API] trigger-refiner loop failed:', err);
     addRefinerLog(`Refiner Error: Matching loop encountered an error: ${err.message}`);
+  }
+});
+
+// Endpoint to force run LLM reevaluation for a specific Matched Job
+app.post('/api/jobs/reevaluate-single', async (req, res) => {
+  const { jobId } = req.body;
+  if (!jobId) {
+    res.status(400).json({ error: 'jobId is required' });
+    return;
+  }
+  
+  try {
+    const db = readDb();
+    const jobIdx = db.scannedJobs.findIndex(j => j.id === jobId);
+    
+    if (jobIdx === -1) {
+      res.status(404).json({ error: 'Job not found in scanned/matched jobs' });
+      return;
+    }
+    
+    const job = db.scannedJobs[jobIdx];
+    
+    if (!db.llmConfig || !db.llmConfig.endpoint) {
+      res.status(400).json({ error: 'LLM configuration is missing' });
+      return;
+    }
+    
+    if (!db.profile || !db.profile.rawText) {
+      res.status(400).json({ error: 'Profile configuration is missing' });
+      return;
+    }
+    
+    addRefinerLog(`Refiner: User triggered manual re-evaluation for "${job.title}" at ${job.company}.`);
+    
+    const yearsOfExperience = db.profile.yearsOfExperience || 0;
+    const experienceContext = yearsOfExperience > 0
+      ? `Candidate has ${yearsOfExperience} years of experience.
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description.
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.
+
+         EXPERIENCE RULES:
+         1. NO EXPERIENCE LIMITS: If the job description does NOT mention years of experience, or mentions requirements up to ${yearsOfExperience + 2} yrs: match score is based solely on skills.
+         2. ACCEPTABLE RANGE (up to ${yearsOfExperience + 2} yrs): If the job requires up to ${yearsOfExperience + 2} years of experience (e.g. asking for 4 years when candidate has 3), it is acceptable. Assign matchScore normally.
+         3. EXCEEDING EXPERIENCE (job requires MORE than ${yearsOfExperience + 2} yrs, e.g. 6+ years): You MUST assign a matchScore of 0 and note "Experience Mismatch: Requires X years, candidate has ${yearsOfExperience} years" in the matchReason.`
+      : `Candidate is entry-level (0 years of experience). Avoid senior/lead/staff positions.
+         CRITERIA-BASED EVALUATION RUBRIC:
+         1. IDENTIFY CORE REQUIREMENTS: First, extract the non-negotiable core requirements from the job description.
+         2. EVIDENCE-BASED MATCHING: Cross-reference each core requirement against the candidate's resume to find explicit evidence.
+         3. FORMULAIC SCORING: Calculate the matchScore strictly as the percentage of core requirements met (e.g., if 4 out of 5 core requirements are met, score is 80). Do not assign high scores based on general fit if specific technical requirements are missing.
+         4. JUSTIFICATION: Use matchReason to explicitly state what core skills were matched and, more importantly, what required skills were missing.`;
+
+    const searchLocation = db.profile.searchLocation || 'United States';
+    const prefersRemote = db.profile.prefersRemote !== false;
+    
+    const rawJob = {
+      title: job.title,
+      company: job.company,
+      url: job.url,
+      source: (job.sourceTag as any) || 'websearch',
+      postedAt: job.postedAt,
+      location: job.location,
+      description: job.description || '',
+      type: job.type || 'Full-Time',
+      isRemote: job.isRemote || false,
+    };
+
+    // Reset circuit breaker to force full context evaluation
+    globalState.llmHealthState.consecutiveFailures = 0;
+    globalState.llmHealthState.degradedMode = false;
+
+    const [scoredJob] = await scoreCommunityJobs(
+      [rawJob],
+      db.profile.rawText,
+      db.llmConfig,
+      experienceContext,
+      db.savedJobs,
+      searchLocation,
+      prefersRemote,
+      db.profile?.blockedCompanies || [],
+      () => {}
+    );
+
+    // Keep it in scannedJobs but update fields
+    job.salary = scoredJob.salary;
+    job.salaryNum = scoredJob.salaryNum;
+    job.matchScore = scoredJob.matchScore;
+    job.matchReason = scoredJob.matchReason;
+    job.skillsRequired = scoredJob.skillsRequired || [];
+    job.isRemote = scoredJob.isRemote;
+    job.experienceLevel = scoredJob.experienceLevel;
+    job.industry = scoredJob.industry;
+    job.retryTier = scoredJob.retryTier;
+    job.isFullDescriptionFetched = true;
+    job.isRefined = true;
+    job.refinementReason = 'Refinement: User triggered manual re-evaluation';
+    
+    // We do NOT dismiss it even if it scores low, because the user wants it to stay red.
+    // If the score dropped, the frontend will style it red.
+
+    writeDb(db);
+    res.json({ success: true, job });
+  } catch (err: any) {
+    console.error('[API] reevaluate-single failed:', err);
+    res.status(500).json({ error: err.message || 'Internal server error during reevaluation' });
   }
 });
 

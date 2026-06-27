@@ -137,70 +137,72 @@ export default function AgentSettings({
 
   if (mode === 'sourcing') {
     return (
-      <div className="sleek-card rounded-2xl border border-white/10 shadow-lg p-6 sm:p-8 space-y-6" id="agent-sourcing-container">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight text-white flex items-center gap-2 font-display">
-            <Cpu className="w-5 h-5 text-indigo-400" />
+      <section className="bg-surface border-2 border-outline-variant p-6 sm:p-8 neo-shadow relative space-y-8" id="agent-sourcing-container">
+        <div className="border-b-2 border-outline-variant pb-4">
+          <h2 className="text-2xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest">
+            <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
+              <Cpu className="w-6 h-6" />
+            </div>
             LLM Settings
           </h2>
-          <p className="text-sm text-slate-400 mt-1 font-sans">
+          <p className="text-sm text-on-surface-variant mt-3 font-body">
             Configure the API connection details for your chosen OpenAI-compatible model endpoint (such as LM Studio, Ollama, or OpenAI).
           </p>
         </div>
 
-        <div className="p-5 bg-slate-950/50 rounded-2xl border border-white/10 space-y-5 font-sans" id="custom-provider-inputs">
-            <div className="flex items-center gap-2 mb-1 text-xs font-semibold text-indigo-400 uppercase tracking-wider font-display">
-              <Cpu className="w-4 h-4 text-indigo-400 animate-pulse" />
+        <div className="p-6 bg-surface-container border-2 border-outline-variant space-y-6 font-body" id="custom-provider-inputs">
+            <div className="flex items-center gap-2 mb-2 text-sm font-headline font-bold uppercase tracking-widest text-primary">
+              <Cpu className="w-5 h-5 animate-pulse" />
               API Connection Details
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                   API Endpoint URL
                 </label>
                 <input
                   type="text"
                   value={llmConfig.endpoint}
                   onChange={(e) => onChangeLLMConfig({ ...llmConfig, endpoint: e.target.value })}
-                  className="w-full px-3 py-2 text-sm bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono placeholder-slate-600"
+                  className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-mono placeholder:text-outline"
                   placeholder="e.g. http://localhost:1234/v1 or https://api.openai.com/v1"
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1">
+                <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                   Model Name String
                 </label>
                 <input
                   type="text"
                   value={llmConfig.modelName}
                   onChange={(e) => onChangeLLMConfig({ ...llmConfig, modelName: e.target.value })}
-                  className="w-full px-3 py-2 text-sm bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-650"
+                  className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline"
                   placeholder="e.g. gpt-4o-mini or llama3"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1">
+              <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                 API Key Secret (Optional)
               </label>
               <input
                 type="password"
                 value={llmConfig.apiKey}
                 onChange={(e) => onChangeLLMConfig({ ...llmConfig, apiKey: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono placeholder-slate-650"
+                className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary font-mono placeholder:text-outline"
                 placeholder="Enter API Key if required by endpoint"
               />
             </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-semibold text-slate-400">
+            <div className="p-4 bg-surface border-2 border-outline-variant">
+              <div className="flex justify-between items-center mb-4">
+                <label className="text-xs font-headline font-bold uppercase tracking-widest text-on-surface">
                   LLM Request Timeout
                 </label>
-                <span className="text-xs font-semibold text-indigo-400 font-mono">
-                  {llmConfig.timeout || 30} seconds
+                <span className="text-lg font-headline font-extrabold text-primary border-b-2 border-primary px-2">
+                  {llmConfig.timeout || 30}s
                 </span>
               </div>
               <div className="flex items-center gap-4">
@@ -211,27 +213,27 @@ export default function AgentSettings({
                   step="5"
                   value={llmConfig.timeout || 30}
                   onChange={(e) => onChangeLLMConfig({ ...llmConfig, timeout: parseInt(e.target.value) })}
-                  className="w-full h-1.5 bg-slate-900 border-none rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                  className="w-full h-2 bg-outline-variant appearance-none cursor-pointer accent-primary"
                 />
               </div>
-              <span className="text-[10px] text-slate-500">
+              <span className="text-[10px] text-on-surface-variant block mt-3 font-mono">
                 Recommended: 30s for local models running on CPU/consumer-grade GPUs, 10s-15s for high-speed APIs.
               </span>
             </div>
 
-            <div className="pt-3.5 border-t border-white/5 space-y-3" id="connection-tester-diagnostic-suite">
+            <div className="pt-6 border-t-2 border-outline-variant space-y-4" id="connection-tester-diagnostic-suite">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <span className="text-xs text-slate-400">
-                  Connection Status: 
-                  <span className={`ml-1.5 font-bold uppercase font-mono tracking-tight text-[11px] ${
-                    testStatus === 'success' ? 'text-emerald-400' :
-                    testStatus === 'failed' ? 'text-rose-400' :
-                    testStatus === 'testing' ? 'text-indigo-400 animate-pulse' : 'text-slate-500'
+                <span className="text-sm font-headline font-bold uppercase tracking-widest flex items-center">
+                  Status: 
+                  <span className={`ml-3 px-3 py-1 border-2 font-extrabold ${
+                    testStatus === 'success' ? 'bg-primary-container text-primary border-primary' :
+                    testStatus === 'failed' ? 'bg-error-container text-error border-error' :
+                    testStatus === 'testing' ? 'bg-surface-container text-outline border-outline animate-pulse' : 'bg-surface-container-lowest text-on-surface-variant border-outline-variant'
                   }`}>
-                    {testStatus === 'success' && '● Connected Successfully'}
-                    {testStatus === 'failed' && '● Connection Failed'}
-                    {testStatus === 'testing' && '● Testing Connection...'}
-                    {testStatus === 'idle' && '● Not Tested'}
+                    {testStatus === 'success' && 'CONNECTED'}
+                    {testStatus === 'failed' && 'FAILED'}
+                    {testStatus === 'testing' && 'TESTING...'}
+                    {testStatus === 'idle' && 'IDLE'}
                   </span>
                 </span>
                 
@@ -239,11 +241,11 @@ export default function AgentSettings({
                   type="button"
                   onClick={testConnection}
                   disabled={testStatus === 'testing'}
-                  className="px-4 py-1.5 text-xs font-bold rounded-xl bg-indigo-650 hover:bg-indigo-600 active:bg-indigo-700 text-white disabled:opacity-40 transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-indigo-550/10"
+                  className="px-6 py-3 text-sm font-headline font-extrabold uppercase tracking-widest border-2 border-black bg-primary text-on-primary hover:opacity-90 active:scale-[0.98] disabled:opacity-40 transition-all cursor-pointer flex items-center justify-center gap-2 neo-shadow-primary"
                 >
                   {testStatus === 'testing' ? (
                     <>
-                      <svg className="animate-spin h-3 w-3 text-white" fill="none" viewBox="0 0 24 24">
+                      <svg className="animate-spin h-4 w-4 text-on-primary" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
@@ -256,36 +258,37 @@ export default function AgentSettings({
               </div>
 
               {testError && (
-                <div className="p-3 bg-rose-950/30 border border-rose-500/15 rounded-xl font-mono text-[10px] text-rose-300 leading-normal max-w-full overflow-x-auto whitespace-pre-wrap">
-                  <span className="font-bold text-rose-400 uppercase block mb-0.5">Connection Error Details</span>
+                <div className="p-4 bg-error-container text-sm text-on-error-container border-2 border-error leading-relaxed font-mono font-bold uppercase tracking-wider overflow-x-auto whitespace-pre-wrap">
+                  <span className="font-extrabold text-error block mb-1">Error Details:</span>
                   {testError}
                 </div>
               )}
               
               {testStatus === 'success' && (
-                <div className="p-3 bg-emerald-950/35 border border-emerald-500/15 rounded-xl text-xs text-emerald-300 leading-normal font-sans">
-                  <span className="font-bold text-emerald-400 block mb-0.5">✓ Connection Success!</span>
-                  Successfully connected to the API endpoint and received a valid response.
+                <div className="p-4 bg-primary-container text-sm text-on-primary-container border-2 border-primary font-headline font-bold uppercase tracking-wider">
+                  ✓ Successfully connected to the API endpoint.
                 </div>
               )}
             </div>
-          </div>
-      </div>
+        </div>
+      </section>
     );
   }
 
   return (
-    <div className="sleek-card rounded-2xl border border-white/10 shadow-lg p-6 sm:p-8 space-y-6" id="agent-targeting-container">
+    <section className="bg-surface border-2 border-outline-variant p-6 sm:p-8 neo-shadow relative space-y-8" id="agent-targeting-container">
       <div className="space-y-6" id="job-targeting-filters">
-        <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
-          <Layers className="w-5 h-5 text-indigo-400" />
+        <h3 className="text-2xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-4">
+          <div className="p-2 bg-primary text-on-primary border-2 border-black neo-shadow-primary">
+            <Layers className="w-6 h-6" />
+          </div>
           Position & Location Sourcing Preferences
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="font-sans space-y-5 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
+          <div className="font-body space-y-6 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 font-mono">1. Position Types</h4>
+              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">1. Position Types</h4>
               <div className="flex flex-wrap gap-2 mb-3">
                 {(['Full-Time', 'Contract', 'Part-Time'] as JobTypeType[]).map((type) => {
                   const isChecked = profile.preferredTypes?.includes(type);
@@ -294,13 +297,13 @@ export default function AgentSettings({
                       key={type}
                       type="button"
                       onClick={() => handleTypeToggle(type)}
-                      className={`px-4 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                      className={`px-4 py-2 text-xs font-headline font-bold uppercase tracking-widest border-2 transition-all cursor-pointer flex items-center gap-2 ${
                         isChecked
-                          ? 'bg-indigo-650 border-indigo-505 text-white shadow-lg shadow-indigo-500/15'
-                          : 'bg-slate-900 border-white/10 text-slate-350 hover:bg-slate-850'
+                          ? 'bg-primary border-black text-on-primary neo-shadow-primary'
+                          : 'bg-surface-container-lowest border-outline-variant text-on-surface-variant hover:text-on-surface hover:border-outline'
                       }`}
                     >
-                      {isChecked && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                      {isChecked && <Check className="w-4 h-4 stroke-[3]" />}
                       {type}
                     </button>
                   );
@@ -308,9 +311,9 @@ export default function AgentSettings({
               </div>
             </div>
 
-            <div className="pt-4 border-t border-white/5">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 font-mono">3. Years of Experience</h4>
-              <div className="flex items-center gap-3">
+            <div className="pt-4 border-t-2 border-outline-variant">
+              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">3. Years of Experience</h4>
+              <div className="flex items-center gap-4">
                 <input
                   type="number"
                   id="years-of-experience"
@@ -318,48 +321,48 @@ export default function AgentSettings({
                   max={40}
                   value={profile.yearsOfExperience || 0}
                   onChange={(e) => onChangeProfile({ ...profile, yearsOfExperience: Number(e.target.value) })}
-                  className="w-20 px-3 py-2 text-sm rounded-lg bg-slate-900 border border-white/10 text-white text-center focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                  className="w-20 px-3 py-2 text-lg font-headline font-extrabold bg-surface-container-lowest border-2 border-outline-variant text-on-surface text-center focus:outline-none focus:border-primary"
                 />
-                <span className="text-xs text-slate-400">
+                <span className="text-xs font-headline font-bold uppercase tracking-wider text-on-surface-variant">
                   {(profile.yearsOfExperience || 0) === 0
                     ? 'Not set — experience level not considered'
-                    : `yrs · overqualified always ok · stretch if req. > ${(profile.yearsOfExperience || 0) + 2} yrs`}
+                    : `yrs · overqualified ok · stretch if > ${(profile.yearsOfExperience || 0) + 2} yrs`}
                 </span>
               </div>
-              <p className="text-[10px] text-slate-500 mt-2 leading-normal">
-                Set your total professional experience. Being <strong className="text-slate-400">overqualified is always acceptable</strong> — applying to a job that requires fewer years than you have is a full match. Jobs requiring up to <strong className="text-slate-400">+2 years</strong> more than yours are also scored normally. Only jobs requiring significantly more experience are flagged as a stretch. Set to 0 to disable experience filtering.
+              <p className="text-[10px] text-outline mt-3 leading-normal font-mono">
+                Set your total professional experience. Being overqualified is always acceptable. Jobs requiring up to +2 years more than yours are also scored normally.
               </p>
             </div>
 
-            <div className="pt-4 border-t border-white/5">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 font-mono">2. Work Location</h4>
+            <div className="pt-4 border-t-2 border-outline-variant">
+              <h4 className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface mb-3 border-b-2 border-outline-variant pb-1">2. Work Location</h4>
               <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-headline font-bold uppercase tracking-widest text-on-surface">
                   <input
                     type="checkbox"
                     checked={profile.prefersRemote}
                     onChange={(e) => onChangeProfile({ ...profile, prefersRemote: e.target.checked })}
-                    className="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-white/10 focus:ring-indigo-650 cursor-pointer accent-indigo-500"
+                    className="w-5 h-5 border-2 border-outline-variant bg-surface-container-lowest accent-primary"
                   />
                   <span>Remote</span>
                 </label>
                 
-                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-headline font-bold uppercase tracking-widest text-on-surface">
                   <input
                     type="checkbox"
                     checked={profile.prefersHybrid}
                     onChange={(e) => onChangeProfile({ ...profile, prefersHybrid: e.target.checked })}
-                    className="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-white/10 focus:ring-indigo-650 cursor-pointer accent-indigo-500"
+                    className="w-5 h-5 border-2 border-outline-variant bg-surface-container-lowest accent-primary"
                   />
                   <span>Hybrid</span>
                 </label>
 
-                <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-xs font-headline font-bold uppercase tracking-widest text-on-surface">
                   <input
                     type="checkbox"
                     checked={profile.prefersOnSite !== false}
                     onChange={(e) => onChangeProfile({ ...profile, prefersOnSite: e.target.checked })}
-                    className="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-white/10 focus:ring-indigo-650 cursor-pointer accent-indigo-500"
+                    className="w-5 h-5 border-2 border-outline-variant bg-surface-container-lowest accent-primary"
                   />
                   <span>On-Site</span>
                 </label>
@@ -367,96 +370,99 @@ export default function AgentSettings({
             </div>
           </div>
 
-          <div className="font-sans space-y-4 p-5 rounded-2xl bg-indigo-950/20 border border-indigo-500/15">
-            <div className="flex items-center gap-1.5 mb-1 text-xs font-semibold text-indigo-400 uppercase tracking-wider font-mono">
-              <MapPin className="w-4 h-4 text-indigo-400" />
+          <div className="font-body space-y-4 p-6 bg-primary-container border-2 border-primary neo-shadow-primary relative overflow-hidden">
+            <div className="flex items-center gap-2 mb-2 text-sm font-headline font-bold uppercase tracking-widest text-primary relative z-10 border-b-2 border-primary pb-2">
+              <MapPin className="w-5 h-5 text-primary" />
               Sourcing Search Location
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-6 relative z-10">
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
+                <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                   Geographic Sourcing Boundary (Required)
                 </label>
                 <input
                   type="text"
                   value={profile.searchLocation || ''}
                   onChange={(e) => onChangeProfile({ ...profile, searchLocation: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-650 leading-relaxed font-sans"
+                  className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-headline font-bold tracking-wider"
                   placeholder="e.g. California, United States, Germany, Austin TX"
                 />
-                <p className="text-[10px] text-slate-400 mt-1 leading-normal font-sans">
+                <p className="text-[10px] text-on-surface-variant mt-2 leading-normal font-mono">
                   Enter any valid location scope such as an entire state, country, or city.
                 </p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
+                <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                   Commute / Distance Radius (Optional)
                 </label>
                 <input
                   type="text"
                   value={profile.searchDistance || ''}
                   onChange={(e) => onChangeProfile({ ...profile, searchDistance: e.target.value })}
-                  className="w-full px-3 py-2 text-xs bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 placeholder-slate-650 font-sans"
-                  placeholder="e.g. 25 miles, 50 km (leave empty to restrict within location boundary)"
+                  className="w-full px-4 py-3 text-sm bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary placeholder:text-outline font-headline font-bold tracking-wider"
+                  placeholder="e.g. 25 miles, 50 km"
                 />
-                <p className="text-[10px] text-slate-400 mt-1 leading-normal font-sans">
-                  Specify a maximum radius to search, or leave empty to restrict results strictly within the geographic boundary of your specified location.
+                <p className="text-[10px] text-on-surface-variant mt-2 leading-normal font-mono">
+                  Specify a maximum radius to search, or leave empty to restrict results strictly within the geographic boundary.
                 </p>
               </div>
+            </div>
+            <div className="absolute -right-10 -bottom-10 opacity-10 pointer-events-none">
+              <MapPin className="w-64 h-64 text-primary" />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-automation-settings">
-        <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
-          <Clock className="w-5 h-5 text-indigo-400" />
+      <div className="pt-8 border-t-2 border-outline-variant space-y-6" id="agent-automation-settings">
+        <h3 className="text-xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-2">
+          <Clock className="w-5 h-5 text-primary" />
           Background Automation & Scheduling
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
+          <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
+              <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                 Auto-Scan Sourcing Interval
               </label>
               <select
                 value={profile.autoScanInterval || 0}
                 onChange={(e) => onChangeProfile({ ...profile, autoScanInterval: Number(e.target.value) })}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans cursor-pointer"
+                className="w-full px-4 py-3 text-sm font-headline font-bold tracking-widest bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary cursor-pointer appearance-none"
               >
-                <option value={0} className="bg-slate-950">Manual (Off)</option>
-                <option value={15} className="bg-slate-950">Every 15 Minutes</option>
-                <option value={30} className="bg-slate-950">Every 30 Minutes</option>
-                <option value={60} className="bg-slate-950">Every 1 Hour</option>
-                <option value={120} className="bg-slate-950">Every 2 Hours</option>
-                <option value={360} className="bg-slate-950">Every 6 Hours</option>
+                <option value={0}>Manual (Off)</option>
+                <option value={15}>Every 15 Minutes</option>
+                <option value={30}>Every 30 Minutes</option>
+                <option value={60}>Every 1 Hour</option>
+                <option value={120}>Every 2 Hours</option>
+                <option value={360}>Every 6 Hours</option>
               </select>
-              <p className="text-[10px] text-slate-400 mt-1.5 leading-normal font-sans">
+              <p className="text-[10px] text-outline mt-2 leading-normal font-mono">
                 Automatically triggers a live sourcing scan to pull new jobs from ATS endpoints.
               </p>
             </div>
           </div>
 
-          <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
+          <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
+              <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                 Auto-Evaluation & Discovery Interval
               </label>
               <select
                 value={profile.refinerIntervalMinutes ?? 5}
                 onChange={(e) => onChangeProfile({ ...profile, refinerIntervalMinutes: Number(e.target.value) })}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans cursor-pointer"
+                className="w-full px-4 py-3 text-sm font-headline font-bold tracking-widest bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary cursor-pointer appearance-none"
               >
-                <option value={0} className="bg-slate-950">Manual (Off)</option>
-                <option value={5} className="bg-slate-950">Every 5 Minutes</option>
-                <option value={15} className="bg-slate-950">Every 15 Minutes</option>
-                <option value={30} className="bg-slate-950">Every 30 Minutes</option>
-                <option value={60} className="bg-slate-950">Every 1 Hour</option>
+                <option value={0}>Manual (Off)</option>
+                <option value={5}>Every 5 Minutes</option>
+                <option value={15}>Every 15 Minutes</option>
+                <option value={30}>Every 30 Minutes</option>
+                <option value={60}>Every 1 Hour</option>
               </select>
-              <p className="text-[10px] text-slate-400 mt-1.5 leading-normal font-sans">
+              <p className="text-[10px] text-outline mt-2 leading-normal font-mono">
                 Automatically evaluates sourced jobs using your LLM and dynamically discovers new company boards.
               </p>
             </div>
@@ -464,17 +470,17 @@ export default function AgentSettings({
         </div>
       </div>
 
-      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-scheduler-settings">
-        <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
-          <Layers className="w-5 h-5 text-indigo-400" />
+      <div className="pt-8 border-t-2 border-outline-variant space-y-6" id="agent-scheduler-settings">
+        <h3 className="text-xl font-headline font-bold text-primary flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-2">
+          <Layers className="w-5 h-5 text-primary" />
           Discovered Memory Capacity & Duplicate Control
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-          <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
+          <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant">
             <div>
-              <label className="block text-xs font-semibold text-slate-400 mb-1 leading-normal">
+              <label className="block text-xs font-headline font-bold uppercase tracking-widest text-on-surface mb-2">
                 Matched Jobs Memory Capacity
               </label>
               <input
@@ -483,32 +489,32 @@ export default function AgentSettings({
                 max={200}
                 value={profile.maxDiscoveredJobs || 30}
                 onChange={(e) => onChangeProfile({ ...profile, maxDiscoveredJobs: Number(e.target.value) })}
-                className="w-full px-3 py-2 text-xs rounded-lg bg-slate-900 border border-white/10 text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                className="w-full px-4 py-3 text-lg font-headline font-extrabold bg-surface-container-lowest border-2 border-outline-variant text-on-surface focus:outline-none focus:border-primary"
               />
-              <p className="text-[10px] text-slate-400 mt-1.5 leading-normal">
-                The maximum number of fully evaluated (matched) job listings to keep in memory. Once reached, no new evaluated jobs will be appended until you review, delete, or apply to existing ones.
+              <p className="text-[10px] text-outline mt-2 leading-normal font-mono">
+                The maximum number of fully evaluated (matched) job listings to keep in memory.
               </p>
             </div>
           </div>
 
-          <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5 col-span-1 md:col-span-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-2">
+          <div className="font-body space-y-4 p-6 bg-surface-container border-2 border-outline-variant col-span-1 md:col-span-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+              <div className="flex items-center gap-3">
                 <input
                   type="checkbox"
                   id="limit-company-matches"
                   checked={profile.limitCompanyMatches || false}
                   onChange={(e) => onChangeProfile({ ...profile, limitCompanyMatches: e.target.checked })}
-                  className="w-4 h-4 rounded text-indigo-650 bg-slate-900 border-white/10 focus:ring-indigo-650 cursor-pointer accent-indigo-500"
+                  className="w-5 h-5 border-2 border-outline-variant bg-surface-container-lowest accent-primary cursor-pointer"
                 />
-                <label htmlFor="limit-company-matches" className="text-xs font-semibold text-slate-300 cursor-pointer select-none">
+                <label htmlFor="limit-company-matches" className="text-sm font-headline font-bold uppercase tracking-widest text-on-surface cursor-pointer select-none">
                   Limit maximum matches per company
                 </label>
               </div>
 
               {profile.limitCompanyMatches && (
-                <div className="flex items-center gap-2 animate-fade-in">
-                  <label className="text-xs text-slate-400 font-semibold whitespace-nowrap">
+                <div className="flex items-center gap-3 animate-fade-in bg-surface border-2 border-outline-variant p-2 px-4">
+                  <label className="text-xs font-headline font-bold uppercase tracking-widest text-on-surface whitespace-nowrap">
                     Max positions per company:
                   </label>
                   <input
@@ -517,26 +523,26 @@ export default function AgentSettings({
                     max={10}
                     value={profile.maxMatchesPerCompany || 3}
                     onChange={(e) => onChangeProfile({ ...profile, maxMatchesPerCompany: Number(e.target.value) })}
-                    className="w-16 px-2 py-1 text-xs rounded-lg bg-slate-900 border border-white/10 text-white text-center focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                    className="w-16 px-2 py-1 text-sm font-headline font-extrabold bg-surface-container-lowest border-2 border-outline-variant text-on-surface text-center focus:outline-none focus:border-primary"
                   />
                 </div>
               )}
             </div>
-            <p className="text-[10px] text-slate-400 mt-1 leading-normal">
+            <p className="text-[10px] text-outline mt-3 leading-normal font-mono">
               When checked, prevents any single company from flooding your discovered list. If a company already has the set number of matching jobs, additional jobs from that company are ignored.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="pt-6 border-t border-white/5 space-y-4" id="agent-blocklist-settings">
-        <h3 className="text-base font-semibold text-white flex items-center gap-2 font-display">
-          <ShieldAlert className="w-5 h-5 text-red-400" />
+      <div className="pt-8 border-t-2 border-outline-variant space-y-6" id="agent-blocklist-settings">
+        <h3 className="text-xl font-headline font-bold text-error flex items-center gap-3 uppercase tracking-widest border-b-2 border-outline-variant pb-2">
+          <ShieldAlert className="w-5 h-5 text-error" />
           Blocked Companies Blocklist
         </h3>
         
-        <div className="font-sans space-y-4 p-5 rounded-2xl bg-slate-950/45 border border-white/5">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="font-body space-y-6 p-6 bg-error-container border-2 border-error">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
             <div className="flex-grow">
               <input
                 type="text"
@@ -544,42 +550,42 @@ export default function AgentSettings({
                 onChange={(e) => setNewBlockedCompany(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddBlock(); } }}
                 placeholder="Enter company name to block (e.g. Nvidia, Facebook)..."
-                className="w-full px-3 py-2 text-xs bg-slate-900 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
+                className="w-full px-4 py-3 text-sm font-headline font-bold bg-surface-container-lowest border-2 border-error text-on-error-container focus:outline-none placeholder:text-error/50"
               />
             </div>
             <button
               type="button"
               onClick={handleAddBlock}
-              className="px-4 py-2 bg-red-650 hover:bg-red-750 text-white font-semibold text-xs rounded-xl shadow-md transition-all shrink-0 cursor-pointer"
+              className="px-6 py-3 bg-error text-on-error font-headline font-extrabold uppercase tracking-widest border-2 border-black hover:opacity-90 active:scale-[0.98] transition-all shrink-0 cursor-pointer neo-shadow"
             >
               Block Company
             </button>
           </div>
 
           {profile.blockedCompanies && profile.blockedCompanies.length > 0 ? (
-            <div className="flex flex-wrap gap-2 pt-2">
+            <div className="flex flex-wrap gap-3 pt-2 border-t-2 border-error/20">
               {profile.blockedCompanies.map((company, index) => (
                 <span
                   key={index}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold bg-red-950/20 border border-red-500/15 text-red-300 animate-fade-in"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 border-2 border-error text-xs font-headline font-bold uppercase tracking-wider bg-surface-container-lowest text-on-error-container"
                 >
                   {company}
                   <button
                     type="button"
                     onClick={() => handleRemoveBlock(company)}
-                    className="p-0.5 rounded-full hover:bg-red-950/60 text-red-450 hover:text-red-350 transition-colors cursor-pointer"
+                    className="p-1 border-2 border-transparent hover:border-error hover:bg-error hover:text-on-error transition-colors cursor-pointer"
                     title={`Unblock ${company}`}
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4" />
                   </button>
                 </span>
               ))}
             </div>
           ) : (
-            <p className="text-xs text-slate-550 italic">No companies blocked yet. You can block companies from the discovered postings board or add them manually above.</p>
+            <p className="text-xs font-mono text-error/80 uppercase tracking-widest">No companies blocked yet. You can block companies from the discovered postings board or add them manually above.</p>
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }
