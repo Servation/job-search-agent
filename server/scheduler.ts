@@ -318,7 +318,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         salary: 'Not specified',
         type: 'Full-Time',
         isW2: true,
-        description: '', // pending full fetch
+        description: rJob.description || '', // keep source description; refiner reuses it (no re-fetch)
         url: rJob.url,
         postedAt: rJob.postedAt || new Date().toISOString(),
         isDuplicate: false,
@@ -628,14 +628,23 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
 
   try {
     addRefinerLog(`Loading details for "${targetJob.title}" at ${targetJob.company}...`);
-    // Workday job pages are JS SPAs that scrape poorly; pull the description from its
-    // cxs JSON API instead, falling back to HTML scraping only if that fails.
-    const isWorkdayUrl = (targetJob.url || '').includes('myworkdayjobs.com');
-    let fetchResult = isWorkdayUrl
-      ? await fetchWorkdayJobDescription(targetJob.url)
-      : await fetchJobHtml(targetJob.url);
-    if (isWorkdayUrl && (fetchResult.status !== 200 || !fetchResult.text)) {
-      fetchResult = await fetchJobHtml(targetJob.url);
+    // Reuse the description captured at source time when we have one — keeps batch
+    // scoring fast and makes zero extra requests (no rate-limit exposure). Only fetch
+    // when a job has no usable description yet.
+    const existingDesc = (targetJob.description || '').trim();
+    let fetchResult: { status: number; text: string };
+    if (existingDesc.length > 200) {
+      fetchResult = { status: 200, text: existingDesc };
+    } else {
+      // Workday job pages are JS SPAs that scrape poorly; pull the description from its
+      // cxs JSON API instead, falling back to HTML scraping only if that fails.
+      const isWorkdayUrl = (targetJob.url || '').includes('myworkdayjobs.com');
+      fetchResult = isWorkdayUrl
+        ? await fetchWorkdayJobDescription(targetJob.url)
+        : await fetchJobHtml(targetJob.url);
+      if (isWorkdayUrl && (fetchResult.status !== 200 || !fetchResult.text)) {
+        fetchResult = await fetchJobHtml(targetJob.url);
+      }
     }
     
     const refreshDb = await readDbAsync();

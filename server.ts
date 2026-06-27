@@ -1456,39 +1456,35 @@ app.post('/api/jobs/trigger-refiner', async (req, res) => {
       delete globalState.domainFetchCooldowns[key];
     }
 
-    let matchesFound = 0;
-    while (matchesFound < 3) {
-      // Pass isManual = true to bypass idle checks
-      const result = await runRefinementCycle(true);
-      
+    // Drain the whole unmatched queue in one manual run — score everything you've
+    // sourced on demand, then it's idle until you ask again. Descriptions are reused
+    // from source time, so this makes no extra network requests.
+    let processed = 0;
+    let idle = 0;
+    const MAX_BATCH = 200; // safety cap (unmatched queue holds <= 100)
+    while (processed < MAX_BATCH) {
+      const result = await runRefinementCycle(true); // isManual: bypass idle/cooldown checks
+
       if (result === 'empty') {
-        console.log('[Refiner] Loop finished: Unmatched queue is empty.');
-        addRefinerLog('Matching finished (nothing left to score).');
+        console.log('[Refiner] Batch finished: queue empty.');
         break;
       }
-      
-      if (result === 'error' || result === 'skipped') {
-        console.log(`[Refiner] Loop encountered ${result}. Breaking to prevent infinite loop.`);
-        addRefinerLog(`Matching stopped (${result}).`);
+      if (result === 'error') {
+        addRefinerLog('Matching stopped (error).');
         break;
+      }
+      if (result === 'skipped') {
+        // transient (job changed/removed mid-cycle) — tolerate a few, then stop
+        if (++idle >= 3) { addRefinerLog('Matching stopped (no progress).'); break; }
+        continue;
       }
 
-      if (result === 'match') {
-        matchesFound++;
-        console.log(`[Refiner] Loop matched job. Total matches found: ${matchesFound}/3`);
-      }
-      
-      // Delay to respect LLM / Rate limits
-      if (matchesFound < 3) {
-        console.log(`[Refiner] Loop sleeping for 8000ms before next iteration...`);
-        await new Promise(r => setTimeout(r, 8000));
-      }
+      idle = 0;
+      processed++;
+      // Brief breather between GPU-heavy evals so the desktop stays responsive.
+      await new Promise(r => setTimeout(r, 2000));
     }
-    
-    if (matchesFound >= 3) {
-      console.log('[Refiner] Loop finished: Reached 3 successful matches.');
-      addRefinerLog('Matching finished (3 matches).');
-    }
+    addRefinerLog(`Matching batch finished (${processed} jobs scored).`);
   } catch (err: any) {
     console.error('[API] trigger-refiner loop failed:', err);
     addRefinerLog(`Matching failed: ${err.message}`);
