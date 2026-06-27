@@ -1412,7 +1412,7 @@ app.post('/api/jobs/search-now', async (req, res) => {
   }
   try {
     console.log('[API] Instant search-now trigger received.');
-    addRefinerLog('Search Agent: Manual "Search Now" search triggered by candidate.');
+    addRefinerLog('You started a search.');
     
     // Reset pacing variables to allow immediate search and bypass cooldowns
     globalState.lastScannerActiveTime = 0; // force refiner idle check to pass
@@ -1449,7 +1449,7 @@ app.post('/api/jobs/trigger-refiner', async (req, res) => {
 
   try {
     console.log('[API] Instant trigger-refiner received. Starting loop...');
-    addRefinerLog('Refiner: Manual "Trigger LLM Matching" initiated by candidate.');
+    addRefinerLog('You started matching.');
     
     // Clear domain fetch cooldowns to allow immediate processing
     for (const key of Object.keys(globalState.domainFetchCooldowns)) {
@@ -1463,13 +1463,13 @@ app.post('/api/jobs/trigger-refiner', async (req, res) => {
       
       if (result === 'empty') {
         console.log('[Refiner] Loop finished: Unmatched queue is empty.');
-        addRefinerLog('Refiner: Matching loop finished (Queue empty).');
+        addRefinerLog('Matching finished (nothing left to score).');
         break;
       }
       
       if (result === 'error' || result === 'skipped') {
         console.log(`[Refiner] Loop encountered ${result}. Breaking to prevent infinite loop.`);
-        addRefinerLog(`Refiner Warning: Matching loop stopped due to ${result} state.`);
+        addRefinerLog(`Matching stopped (${result}).`);
         break;
       }
 
@@ -1487,11 +1487,11 @@ app.post('/api/jobs/trigger-refiner', async (req, res) => {
     
     if (matchesFound >= 3) {
       console.log('[Refiner] Loop finished: Reached 3 successful matches.');
-      addRefinerLog('Refiner: Matching loop finished (Found 3 matches).');
+      addRefinerLog('Matching finished (3 matches).');
     }
   } catch (err: any) {
     console.error('[API] trigger-refiner loop failed:', err);
-    addRefinerLog(`Refiner Error: Matching loop encountered an error: ${err.message}`);
+    addRefinerLog(`Matching failed: ${err.message}`);
   }
 });
 
@@ -1524,7 +1524,7 @@ app.post('/api/jobs/reevaluate-single', async (req, res) => {
       return;
     }
     
-    addRefinerLog(`Refiner: User triggered manual re-evaluation for "${job.title}" at ${job.company}.`);
+    addRefinerLog(`You re-scored "${job.title}" at ${job.company}.`);
     
     const yearsOfExperience = db.profile.yearsOfExperience || 0;
     const experienceContext = yearsOfExperience > 0

@@ -51,8 +51,8 @@ export default function EventLogsConsole({
           <div className="text-outline italic py-2 font-headline uppercase tracking-widest">No activity yet. Parse a resume or run a scan.</div>
         ) : (
           [...aiLogs].reverse().map((log, idx) => {
-            const hasColor = log.includes("Error") || log.includes("failed");
-            const hasSuccess = log.includes("successful") || log.includes("analyzed") || log.includes("Success") || log.includes("completed");
+            const hasColor = /error|failed|could ?not|couldn|unable|timed out/i.test(log);
+            const hasSuccess = /matched|complete|success|\bsaved\b|parsed|connected|restored|still open|found new/i.test(log);
             return (
               <div key={idx} className="flex gap-3 items-start border-b border-outline-variant/30 pb-2">
                 <span className="text-primary font-bold select-none shrink-0">&gt;</span>

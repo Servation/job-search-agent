@@ -160,7 +160,7 @@ export function harvestWorkdayUrl(urlStr: string): boolean {
   });
 
   writeDb(db);
-  const logMsg = `System Discovery: Harvested candidate Workday site for "${parsed.tenant}" (${parsed.host})`;
+  const logMsg = `Found a possible new company board: ${parsed.tenant}.`;
   console.log(`[Discovery] Harvested candidate: ${parsed.tenant} (${parsed.host})`);
   addRefinerLog(logMsg);
   return true;
@@ -541,7 +541,7 @@ function applyDynamicCompanyFailures(failures: { company: WorkdayCompany, failed
       dynamicCompany.consecutiveFailures = (dynamicCompany.consecutiveFailures || 0) + 1;
       if (dynamicCompany.consecutiveFailures >= 5) {
         console.log(`[Discovery] Automatically pruned dynamic Workday company "${dynamicCompany.name}" (${dynamicCompany.host}) after 5 consecutive failures.`);
-        addRefinerLog(`System Discovery: Pruned dynamic Workday company "${dynamicCompany.name}" due to 5 consecutive failures.`);
+        addRefinerLog(`Removed broken company board: ${dynamicCompany.name}.`);
         (db.workdayDirectory as any)[idx] = null;
       } else {
         console.log(`[Discovery] Dynamic Workday company "${dynamicCompany.name}" failure count: ${dynamicCompany.consecutiveFailures}/5`);

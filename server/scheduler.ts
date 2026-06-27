@@ -70,8 +70,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
   const preventedDuplicates: PreventedDuplicate[] = [];
 
   const startLog = isManual
-    ? 'Search Agent: Starting manual scan for new postings...'
-    : 'Refiner: Starting background job check for new postings...';
+    ? 'Searching for new jobs...'
+    : 'Checking for new jobs...';
   console.log(isManual ? '[Search Agent] Running manual job sourcing check...' : '[Refiner] Running periodic background job sourcing check...');
   addRefinerLog(startLog);
 
@@ -90,7 +90,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
   ]);
 
   const raw: RawCommunityJob[] = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs];
-  addRefinerLog(`Refiner Sourced counts -> Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}`);
+  addRefinerLog(`Found jobs from Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}`);
     
     if (!db.stats) {
       db.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
@@ -100,7 +100,7 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
     
     if (!db.llmConfig) {
       console.log('[Refiner] Background sourcing: Missing LLM configuration. Skipping evaluation.');
-      addRefinerLog('Refiner Warning: Skipping background job evaluations because LLM config is missing.');
+      addRefinerLog('Skipped scoring: no model configured.');
       return [];
     }
 
@@ -256,8 +256,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
 
     if (candidates.length === 0) {
       const doneLog = isManual
-        ? 'Search Agent: Sourcing check finished. No new unique jobs discovered.'
-        : 'Refiner: Background job sourcing check finished. No new unique jobs discovered.';
+        ? 'Search finished. No new jobs found.'
+        : 'Background check finished. No new jobs found.';
       addRefinerLog(doneLog);
       console.log(isManual ? '[Search Agent] Sourcing ran: No new candidate jobs found.' : '[Refiner] Background sourcing ran: No new candidate jobs found.');
       const finalDb = await readDbAsync();
@@ -316,8 +316,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         const skippedDueToCapacity = toAdd.slice(finalToAdd.length);
         for (const job of skippedDueToCapacity) {
           const capMsg = isManual
-            ? `Search Agent: Skipped adding "${job.title}" at ${job.company} (Reason: Unmatched queue is full)`
-            : `Refiner: Skipped candidate "${job.title}" at ${job.company} (Reason: Unmatched queue is full)`;
+            ? `Skipped "${job.title}" at ${job.company} (queue is full).`
+            : `Skipped "${job.title}" at ${job.company} (queue is full).`;
           addRefinerLog(capMsg);
         }
       }
@@ -328,8 +328,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
         freshDb.stats.totalScanned += finalToAdd.length;
         for (const job of finalToAdd) {
           const addLog = isManual
-            ? `Search Agent: Sourced new raw job "${job.title}" at ${job.company}. Added to Unmatched Queue.`
-            : `Refiner: Sourced new background job "${job.title}" at ${job.company}. Added to Unmatched Queue.`;
+            ? `Added "${job.title}" at ${job.company} to the queue.`
+            : `Added "${job.title}" at ${job.company} to the queue.`;
           addRefinerLog(addLog);
         }
         console.log(isManual
@@ -339,8 +339,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
       }
     } else {
       const doneLog = isManual
-        ? 'Search Agent: Sourcing check finished. No new unique jobs found.'
-        : 'Refiner: Background job sourcing check finished. No new unique jobs found.';
+        ? 'Search finished. No new jobs found.'
+        : 'Background check finished. No new jobs found.';
       addRefinerLog(doneLog);
       console.log(isManual
         ? '[Search Agent] Sourcing ran: No new jobs added.'
@@ -352,8 +352,8 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
     return preventedDuplicates;
   } catch (err: any) {
     const errorLog = isManual
-      ? `Search Agent Warning: Sourcing failed: ${err.message}`
-      : `Refiner Warning: Background sourcing failed: ${err.message}`;
+      ? `Search failed: ${err.message}`
+      : `Background check failed: ${err.message}`;
     addRefinerLog(errorLog);
     console.warn(isManual ? '[Search Agent] Sourcing failed:' : '[Refiner] Background sourcing failed:', err.message);
     return [];
@@ -368,7 +368,7 @@ export async function runLinkAuditCycle() {
 
   if (allAuditable.length === 0) {
     console.log('[Refiner] Discovered postings is empty. Looking for new job posts...');
-    addRefinerLog('Refiner Audit: Discovered postings is empty. Initiating background sourcing search for new jobs...');
+    addRefinerLog('No jobs to check. Searching for new ones...');
     globalState.lastBackgroundSourceTime = Date.now();
     try {
       await runBackgroundSourcing();
@@ -404,7 +404,7 @@ export async function runLinkAuditCycle() {
   }
 
   console.log(`[Refiner] Auditing discovered job link: "${target.title}" at "${target.company}" (${target.url})`);
-  addRefinerLog(`Refiner Audit: Auditing link for "${target.title}" at ${target.company}...`);
+  addRefinerLog(`Checking link for "${target.title}" at ${target.company}...`);
   const fetchResult = await fetchJobHtml(target.url);
 
   // Re-read db to avoid overwrite races
@@ -421,7 +421,7 @@ export async function runLinkAuditCycle() {
         refDb.dismissedJobs.unshift(removed);
       }
       await writeDbAsync(refDb);
-      addRefinerLog(`Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Link Dead (${fetchResult.status}))`);
+      addRefinerLog(`Removed "${removed.title}" at ${removed.company} (dead link, ${fetchResult.status}).`);
       console.log(`[Refiner] Audit: Discovered job closed -> dismissed: "${removed.title}"`);
     }
     return;
@@ -447,18 +447,18 @@ export async function runLinkAuditCycle() {
           refDb.dismissedJobs.unshift(removed);
         }
         await writeDbAsync(refDb);
-        addRefinerLog(`Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Position Closed)`);
+        addRefinerLog(`Removed "${removed.title}" at ${removed.company} (job closed).`);
         console.log(`[Refiner] Audit: Discovered job closed -> dismissed: "${removed.title}"`);
       }
     } else {
-      addRefinerLog(`Refiner Audit: Verified "${target.title}" at ${target.company} is still open (HTTP 200).`);
+      addRefinerLog(`"${target.title}" at ${target.company} is still open.`);
       console.log(`[Refiner] Audit: Verified "${target.title}" at ${target.company} is still open`);
     }
     return;
   }
 
   // If it is not 200 and not 404/410 (e.g. 403, 500, etc.)
-  addRefinerLog(`Refiner Warning: Link check for "${target.title}" at ${target.company} returned HTTP ${fetchResult.status}. Skipped.`);
+  addRefinerLog(`Link check for "${target.title}" at ${target.company} returned HTTP ${fetchResult.status}. Skipped.`);
   console.log(`[Refiner] Audit: Skipped check for "${target.title}" (HTTP ${fetchResult.status})`);
 }
 
@@ -536,12 +536,12 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
               consecutiveFailures: 0
             });
             console.log(`[Discovery] Validation SUCCESS: Added dynamic Workday company "${formattedName}" (${item.host}) with site path "${validation.resolvedSite}"`);
-            addRefinerLog(`System Discovery: Successfully validated and added dynamic Workday site for "${formattedName}" (${item.host})`);
+            addRefinerLog(`Found new company board: ${formattedName}.`);
             dbUpdated = true;
           }
         } else {
           console.log(`[Discovery] Validation FAILED: Rejected Workday candidate "${item.tenant}" (${item.host})`);
-          addRefinerLog(`System Discovery: Rejected invalid or blocked Workday host candidate "${item.tenant}" (${item.host})`);
+          addRefinerLog(`Skipped invalid company board: ${item.tenant}.`);
         }
       }
       
@@ -595,7 +595,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
   globalState.currentlyRefiningJobId = targetJob.id;
 
   try {
-    addRefinerLog(`Refiner: Fetching details for "${targetJob.title}" at ${targetJob.company}...`);
+    addRefinerLog(`Loading details for "${targetJob.title}" at ${targetJob.company}...`);
     const fetchResult = await fetchJobHtml(targetJob.url);
     
     const refreshDb = await readDbAsync();
@@ -621,7 +621,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
           refreshDb.dismissedJobs.unshift(removed);
         }
         await writeDbAsync(refreshDb);
-        addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Link Dead HTTP ${fetchResult.status})`);
+        addRefinerLog(`Removed "${removed.title}" at ${removed.company} (dead link, ${fetchResult.status}).`);
         console.log(`[Refiner] Auto-dismissed dead job link: "${removed.title}" (${fetchResult.status})`);
       }
       return 'dismiss';
@@ -639,7 +639,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
           refreshDb.dismissedJobs.unshift(removed);
         }
         await writeDbAsync(refreshDb);
-        addRefinerLog(`Refiner Warning: Fetch details for "${removed.title}" at ${removed.company} failed (HTTP ${fetchResult.status}). Archived.`);
+        addRefinerLog(`Couldn't load "${removed.title}" at ${removed.company} (HTTP ${fetchResult.status}). Removed.`);
         console.log(`[Refiner] Auto-dismissed failed job link fetch: "${removed.title}" (HTTP ${fetchResult.status})`);
       }
       return 'dismiss';
@@ -668,7 +668,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
           refreshDb.dismissedJobs.unshift(removed);
         }
         await writeDbAsync(refreshDb);
-        addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: Position Closed)`);
+        addRefinerLog(`Removed "${removed.title}" at ${removed.company} (job closed).`);
         console.log(`[Refiner] Auto-dismissed closed job posting: "${removed.title}"`);
       }
       return;
@@ -693,7 +693,7 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
           refreshDb.dismissedJobs.unshift(removed);
         }
         await writeDbAsync(refreshDb);
-        addRefinerLog(`Refiner: Auto-archived discovered "${removed.title}" at ${removed.company} (Reason: ${locationMismatch})`);
+        addRefinerLog(`Removed "${removed.title}" at ${removed.company} (${locationMismatch}).`);
         console.log(`[Refiner] Auto-dismissed job with location mismatch: "${removed.title}" (${locationMismatch})`);
       }
       return;
@@ -727,12 +727,12 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
     };
 
     console.log(`[Refiner] Evaluating job "${targetJob.title}" via LLM...`);
-    addRefinerLog(`Refiner: Evaluating candidate "${targetJob.title}" at ${targetJob.company} via LLM...`);
+    addRefinerLog(`Scoring "${targetJob.title}" at ${targetJob.company}...`);
     globalState.lastBackgroundLlmEvalTime = Date.now();
     
     if (!refreshDb.llmConfig) {
       console.log(`[Refiner] Skipped LLM evaluation for "${job.title}" (Missing LLM settings)`);
-      addRefinerLog(`Refiner Warning: Skipped LLM evaluation for "${job.title}" because LLM config is missing.`);
+      addRefinerLog(`Skipped "${job.title}": no model configured.`);
       return 'skipped';
     }
 
@@ -782,14 +782,14 @@ export async function runRefinementCycle(isManual: boolean = false): Promise<'ma
         if (!finalDb.dismissedJobs.some(j => j.id === removed.id)) {
           finalDb.dismissedJobs.unshift(removed);
         }
-        addRefinerLog(`Refiner: Skipped "${removed.title}" (Score ${removed.matchScore}% < ${minScore}%: ${removed.matchReason})`);
+        addRefinerLog(`Skipped "${removed.title}" (${removed.matchScore}% < ${minScore}%): ${removed.matchReason}`);
         console.log(`[Refiner] Dismissed job due to low score: ${removed.matchScore}%`);
         await writeDbAsync(finalDb);
         return 'dismiss';
       } else {
         // Keep in scannedJobs (Matched)
         finalJob.isRefined = true;
-        addRefinerLog(`Refiner: Successfully evaluated "${finalJob.title}" (Score: ${finalJob.matchScore}%)`);
+        addRefinerLog(`Matched "${finalJob.title}" (${finalJob.matchScore}%).`);
         console.log(`[Refiner] Evaluated job matches criteria: ${finalJob.matchScore}%`);
         await writeDbAsync(finalDb);
         return 'match';
