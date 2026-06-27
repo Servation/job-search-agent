@@ -25,6 +25,23 @@ import DashboardStats from './components/DashboardStats';
 import JobScanner from './components/JobScanner';
 import SubmissionTracker from './components/SubmissionTracker';
 
+/**
+ * localStorage can throw QuotaExceededError once the saved/dismissed job lists grow
+ * (descriptions are large). The server DB is the source of truth, so a failed cache
+ * write must never crash the app — swallow it with a warning.
+ */
+const safeSetItem = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    console.warn(`[cache] Skipped saving "${key}" to localStorage (quota exceeded). Server data is unaffected.`);
+  }
+};
+
+// Job descriptions can be ~15k chars each; drop them from the cached copy to stay under
+// the localStorage quota. Full descriptions are restored from the server on load.
+const slimForCache = (jobs: Job[]): Job[] => jobs.map(j => ({ ...j, description: '' }));
+
 // Seed initial tracker empty to start without default information
 const INITIAL_SAVED_JOBS: Job[] = [];
 
@@ -131,7 +148,7 @@ export default function App() {
   const handleScanStarted = () => {
     const key = getProfileScanKey(profile);
     setLastScannedProfile(key);
-    localStorage.setItem('job_agent_last_scanned_profile', key);
+    safeSetItem('job_agent_last_scanned_profile', key);
   };
 
   const [llmConfig, setLlmConfig] = useState<LLMConfig>(() => {
@@ -190,7 +207,7 @@ export default function App() {
   const [currentlyRefiningJobId, setCurrentlyRefiningJobId] = useState<string | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('job_agent_scanned_jobs', JSON.stringify(scannedJobs));
+    safeSetItem('job_agent_scanned_jobs', JSON.stringify(slimForCache(scannedJobs)));
   }, [scannedJobs]);
 
   const [dismissedJobs, setDismissedJobs] = useState<Job[]>(() => {
@@ -202,7 +219,7 @@ export default function App() {
   });
 
   useEffect(() => {
-    localStorage.setItem('job_agent_dismissed_jobs', JSON.stringify(dismissedJobs));
+    safeSetItem('job_agent_dismissed_jobs', JSON.stringify(slimForCache(dismissedJobs)));
   }, [dismissedJobs]);
 
   const [dismissedJobKeys, setDismissedJobKeys] = useState<string[]>(() => {
@@ -218,7 +235,7 @@ export default function App() {
   useEffect(() => {
     const computed = dismissedJobs.map(j => `${j.company.toLowerCase().trim()}|${j.title.toLowerCase().trim()}`);
     setDismissedJobKeys(computed);
-    localStorage.setItem('job_agent_dismissed_job_keys', JSON.stringify(computed));
+    safeSetItem('job_agent_dismissed_job_keys', JSON.stringify(computed));
   }, [dismissedJobs]);
 
   const performJobAction = async (action: string, payload: any) => {
@@ -271,7 +288,7 @@ export default function App() {
     const timeStr = new Date().toLocaleTimeString();
     setAiLogs((prev) => {
       const updated = [`[${timeStr}] ${msg}`, ...prev].slice(0, 150);
-      localStorage.setItem('job_agent_ai_logs', JSON.stringify(updated));
+      safeSetItem('job_agent_ai_logs', JSON.stringify(updated));
       return updated;
     });
   };
@@ -279,7 +296,7 @@ export default function App() {
   const clearAiLogs = () => {
     const initialLog = `[${new Date().toLocaleTimeString()}] Logs cleared.`;
     setAiLogs([initialLog]);
-    localStorage.setItem('job_agent_ai_logs', JSON.stringify([initialLog]));
+    safeSetItem('job_agent_ai_logs', JSON.stringify([initialLog]));
   };
 
   // Background statistics indicators
@@ -312,23 +329,23 @@ export default function App() {
 
   // Local storage caching effects
   useEffect(() => {
-    localStorage.setItem('job_agent_profile', JSON.stringify(profile));
+    safeSetItem('job_agent_profile', JSON.stringify(profile));
   }, [profile]);
 
   useEffect(() => {
-    localStorage.setItem('job_agent_llm_config', JSON.stringify(llmConfig));
+    safeSetItem('job_agent_llm_config', JSON.stringify(llmConfig));
   }, [llmConfig]);
 
   useEffect(() => {
-    localStorage.setItem('job_agent_saved_jobs', JSON.stringify(savedJobs));
+    safeSetItem('job_agent_saved_jobs', JSON.stringify(savedJobs));
   }, [savedJobs]);
 
   useEffect(() => {
-    localStorage.setItem('job_agent_watchlist', JSON.stringify(watchlist));
+    safeSetItem('job_agent_watchlist', JSON.stringify(watchlist));
   }, [watchlist]);
 
   useEffect(() => {
-    localStorage.setItem('job_agent_stats', JSON.stringify(stats));
+    safeSetItem('job_agent_stats', JSON.stringify(stats));
   }, [stats]);
 
   // Hydration on mount
@@ -456,10 +473,10 @@ export default function App() {
             
             // Sync background timers to local storage so Scanner can show them
             if (data.lastBackgroundSourceTime) {
-              localStorage.setItem('job_agent_last_run_timestamp', String(data.lastBackgroundSourceTime));
+              safeSetItem('job_agent_last_run_timestamp', String(data.lastBackgroundSourceTime));
             }
             if (data.lastBackgroundRefinerTime) {
-              localStorage.setItem('job_agent_last_refiner_timestamp', String(data.lastBackgroundRefinerTime));
+              safeSetItem('job_agent_last_refiner_timestamp', String(data.lastBackgroundRefinerTime));
             }
             
             // Append new logs from background
