@@ -234,6 +234,10 @@ async function batchPromises<T, R>(
         results.push(...res.value);
       }
     }
+    // Brief pause between batches to stay polite and reduce rate-limit risk.
+    if (i + batchSize < items.length) {
+      await new Promise(r => setTimeout(r, 200));
+    }
   }
   return results;
 }
@@ -979,7 +983,10 @@ export async function fetchHackerNewsJobs(
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 12000);
   try {
-    const searchUrl = 'https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&query=Who%20is%2520hiring';
+    // Tag-only query reliably returns whoishiring's posts newest-first; the title
+    // filter below picks the current month's "Who is hiring?" thread. (The old
+    // &query=Who%20is%2520hiring was double-encoded and matched nothing.)
+    const searchUrl = 'https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=10';
     const searchRes = await fetch(searchUrl, { signal: ctrl.signal });
     if (!searchRes.ok) return [];
     const searchData = await searchRes.json();

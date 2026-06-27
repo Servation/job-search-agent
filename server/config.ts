@@ -145,6 +145,11 @@ export const globalState = {
   domainFetchCooldowns: {} as Record<string, number>,
   
   lastBackgroundRefinerTime: 0,
+
+  // Rotating offsets so each background scan pulls a DIFFERENT subset of companies
+  // instead of always the same first ones — lighter rate-limit footprint per domain
+  // and more company variety over time.
+  sourcingRotation: { greenhouse: 0, ashby: 0, workday: 0 },
   
   // Weekly Slugs/Endpoints Registry caching variables
   lastRegistryFetchTime: 0,

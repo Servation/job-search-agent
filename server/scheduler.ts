@@ -15,11 +15,12 @@ import {
 } from './utils';
 import { scoreCommunityJobs, queryCustomLLMAdaptive } from './llm';
 import { 
-  fetchGreenhouseJobs, 
-  fetchLeverJobs, 
+  fetchGreenhouseJobs,
+  fetchLeverJobs,
   fetchAshbyJobs,
   fetchSmartRecruitersJobs,
-  fetchWorkdayViaSearchGrounding, 
+  fetchWorkdayJobs,
+  fetchHackerNewsJobs,
   checkSourceHealth,
   updateCompanyDirectoriesFromRegistry,
   RawCommunityJob,
@@ -28,6 +29,18 @@ import {
 } from './sourcing';
 
 let refinerTimer: NodeJS.Timeout | null = null;
+
+/**
+ * Returns up to `count` items starting at a rotating `offset`, wrapping around,
+ * so each scan covers a different slice of a long company list.
+ */
+function rotateSlice<T>(items: readonly T[], offset: number, count: number): T[] {
+  if (items.length <= count) return [...items];
+  const start = ((offset % items.length) + items.length) % items.length;
+  const out: T[] = [];
+  for (let i = 0; i < count; i++) out.push(items[(start + i) % items.length]);
+  return out;
+}
 
 export async function runBackgroundSourcing(isManual = false): Promise<PreventedDuplicate[]> {
   if (globalState.isSourcingActive) {
@@ -77,20 +90,38 @@ export async function runBackgroundSourcing(isManual = false): Promise<Prevented
 
   const roleKeywords = extractRoleKeywords(db.profile.targetRoles);
   const targetRoles = db.profile.targetRoles || [];
+  const skills = db.profile.parsedSkills || [];
   const searchLocation = db.profile.searchLocation || 'United States';
   const prefersRemote = db.profile.prefersRemote !== false;
   const yearsOfExperience = db.profile.yearsOfExperience || 0;
 
+  // Rotate through subsets of each large company list per scan: lighter rate-limit
+  // footprint per domain, and different companies surfaced on successive scans.
+  const rot = globalState.sourcingRotation;
+  const ghSlugs = rotateSlice(globalState.cachedGreenhouseSlugs, rot.greenhouse, 25);
+  const ashSlugs = rotateSlice(globalState.cachedAshbySlugs, rot.ashby, 15);
+  const wdCompanies = rotateSlice(globalState.cachedWorkdayDirectory, rot.workday, 12);
+
   const health = await checkSourceHealth(searchLocation, prefersRemote);
-  const [ghJobs, lvJobs, ashJobs, wdJobs] = await Promise.all([
-    health.greenhouse ? fetchGreenhouseJobs(globalState.cachedGreenhouseSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+  const [ghJobs, lvJobs, ashJobs, wdJobs, hnJobs] = await Promise.all([
+    health.greenhouse ? fetchGreenhouseJobs(ghSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
     health.lever ? fetchLeverJobs(globalState.cachedLeverSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-    health.ashby ? fetchAshbyJobs(globalState.cachedAshbySlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
-    health.workday ? fetchWorkdayViaSearchGrounding(targetRoles, searchLocation) : Promise.resolve([]),
+    health.ashby ? fetchAshbyJobs(ashSlugs, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+    // Direct Workday cxs API over the verified directory (reliable) instead of the
+    // flaky DuckDuckGo scraping. Best-effort: a down tenant just yields [].
+    health.workday ? fetchWorkdayJobs(wdCompanies, roleKeywords, targetRoles, searchLocation, prefersRemote, yearsOfExperience) : Promise.resolve([]),
+    // HN "Who is hiring" — best-effort source of diverse/startup roles beyond the fixed
+    // ATS slugs. Capped per scan so the (often 300+) raw posts don't flood the queue.
+    fetchHackerNewsJobs(roleKeywords, skills, targetRoles, searchLocation, prefersRemote, yearsOfExperience).then(j => j.slice(0, 20)).catch(() => []),
   ]);
 
-  const raw: RawCommunityJob[] = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs];
-  addRefinerLog(`Found jobs from Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}`);
+  // Advance rotation offsets so the next scan picks up where this one left off.
+  rot.greenhouse = (rot.greenhouse + 25) % Math.max(1, globalState.cachedGreenhouseSlugs.length);
+  rot.ashby = (rot.ashby + 15) % Math.max(1, globalState.cachedAshbySlugs.length);
+  rot.workday = (rot.workday + 12) % Math.max(1, globalState.cachedWorkdayDirectory.length);
+
+  const raw: RawCommunityJob[] = [...ghJobs, ...lvJobs, ...ashJobs, ...wdJobs, ...hnJobs];
+  addRefinerLog(`Found jobs from Greenhouse: ${ghJobs.length}, Lever: ${lvJobs.length}, Ashby: ${ashJobs.length}, Workday: ${wdJobs.length}, HN: ${hnJobs.length}`);
     
     if (!db.stats) {
       db.stats = { totalScanned: 0, duplicatesPrevented: 0, llmEvaluations: 0, totalSourced: 0 };
